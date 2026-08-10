@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api import admin, auth, health, me, subscriptions, topics
+from app.api import admin, admin_users, auth, health, me, subscriptions, topics
 from app.api.errors import ApiError
 from app.core.config import Settings
 from app.core.logging import request_id_var, setup_logging
@@ -108,4 +108,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(topics.router, prefix="/api/v1")
     app.include_router(subscriptions.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1/admin")
+    app.include_router(admin_users.router, prefix="/api/v1/admin")
     return app

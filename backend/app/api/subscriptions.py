@@ -4,30 +4,14 @@ Die API ist die Sicherheitsgrenze — das UI sperrt Pflicht-Toggles nur zusätzl
 """
 
 from fastapi import APIRouter, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from app.api.deps import CurrentUserDep, SessionDep, SettingsDep
-from app.api.errors import ApiError
-from app.db.models import AuditLog, Subscription, Topic
+from app.db.models import AuditLog, Subscription
+from app.domain.topics import get_topic, guard_mandatory
 
 router = APIRouter()
-
-
-async def _get_active_topic(session, topic_id: str) -> Topic:
-    topic = (
-        await session.execute(select(Topic).where(Topic.id == topic_id, Topic.is_active.is_(True)))
-    ).scalar_one_or_none()
-    if topic is None:
-        raise ApiError(404, "TOPIC_NOT_FOUND", f"Topic '{topic_id}' existiert nicht")
-    return topic
-
-
-def _guard_mandatory(topic: Topic) -> None:
-    if topic.is_mandatory:
-        raise ApiError(
-            409, "TOPIC_MANDATORY", f"'{topic.name}' ist ein Pflicht-Verteiler und nicht abwählbar"
-        )
 
 
 async def _audit(session, settings, actor_email: str, action: str, topic_id: str) -> None:
@@ -40,8 +24,8 @@ async def _audit(session, settings, actor_email: str, action: str, topic_id: str
 async def subscribe(
     topic_id: str, session: SessionDep, user: CurrentUserDep, settings: SettingsDep
 ) -> Response:
-    topic = await _get_active_topic(session, topic_id)
-    _guard_mandatory(topic)
+    topic = await get_topic(session, topic_id)
+    guard_mandatory(topic)
     stmt = (
         mysql_insert(Subscription)
         .values(user_id=user.id, topic_id=topic.id)
@@ -57,8 +41,8 @@ async def subscribe(
 async def unsubscribe(
     topic_id: str, session: SessionDep, user: CurrentUserDep, settings: SettingsDep
 ) -> Response:
-    topic = await _get_active_topic(session, topic_id)
-    _guard_mandatory(topic)
+    topic = await get_topic(session, topic_id)
+    guard_mandatory(topic)
     await session.execute(
         delete(Subscription).where(
             Subscription.user_id == user.id, Subscription.topic_id == topic.id

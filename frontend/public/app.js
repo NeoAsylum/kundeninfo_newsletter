@@ -71,8 +71,9 @@ const App = {
     const chip = document.getElementById("user-chip");
     if (chip) chip.textContent = me.email;
     if (me.roles.includes("admin")) {
-      const nav = document.getElementById("nav-versand");
-      if (nav) nav.hidden = false;
+      document.querySelectorAll("[data-admin-only]").forEach((node) => {
+        node.hidden = false;
+      });
     }
     document.querySelectorAll(".topbar-nav a").forEach((link) => {
       if (link.dataset.page === activePage) link.classList.add("active");

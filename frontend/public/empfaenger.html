@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Empfänger — Störungsinfo-Portal</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/abos.html"><span class="brand-mark">S</span> Störungsinfo-Portal</a>
+      <nav class="topbar-nav" aria-label="Hauptnavigation">
+        <a href="/abos.html" data-page="abos">Meine Abos</a>
+        <a href="/versand.html" data-page="versand" id="nav-versand" data-admin-only hidden>Versand</a>
+        <a href="/empfaenger.html" data-page="empfaenger" id="nav-empfaenger" data-admin-only hidden>Empfänger</a>
+      </nav>
+      <span class="topbar-spacer"></span>
+      <span class="user-chip" id="user-chip" aria-live="polite">…</span>
+      <a class="logout-link" href="#">Abmelden</a>
+    </div>
+  </header>
+
+  <main class="page page-wide">
+    <div class="page-head">
+      <h1>Empfänger verwalten</h1>
+      <p>Aktive Empfänger durchsuchen, Abonnements pflegen und Empfänger deaktivieren.</p>
+    </div>
+
+    <div class="search-row">
+      <input type="text" id="search" maxlength="200" placeholder="Nach E-Mail oder Name suchen …"
+             aria-label="Empfänger suchen">
+      <span class="result-count" id="result-count" aria-live="polite"></span>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="users-table" aria-label="Empfängerliste">
+          <thead>
+            <tr>
+              <th>E-Mail</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Abonnements</th>
+              <th><span class="visually-hidden">Aktionen</span></th>
+            </tr>
+          </thead>
+          <tbody id="users-body">
+            <tr><td colspan="5" class="loading-state">Lade Empfänger …</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="load-more-row">
+        <button type="button" class="btn btn-secondary" id="load-more" hidden>Mehr laden</button>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer-links">
+    <a href="/datenschutz.html">Datenschutzhinweis</a>
+  </footer>
+
+  <script src="/app.js"></script>
+  <script src="/empfaenger.js"></script>
+</body>
+</html>

@@ -449,3 +449,107 @@ textarea { resize: vertical; min-height: 180px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---------- Empfänger-Verwaltung ---------- */
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.search-row input { flex: 1; }
+
+.result-count { font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
+
+.table-wrap { overflow-x: auto; }
+
+.users-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+
+.users-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.users-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--surface-muted);
+  vertical-align: middle;
+}
+
+.users-table tr.inactive td { color: var(--text-muted); }
+
+.badge-active { background: #ecf9f1; color: #1d7a46; }
+.badge-inactive { background: #f1f3f6; color: var(--text-muted); }
+
+.chip {
+  display: inline-block;
+  font-size: 0.75rem;
+  background: #e8effa;
+  color: var(--primary);
+  border-radius: 999px;
+  padding: 2px 9px;
+  margin: 1px 3px 1px 0;
+  white-space: nowrap;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--primary);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.btn-secondary:hover { background: var(--surface-muted); }
+
+.detail-row td {
+  background: var(--surface-muted);
+  padding: 18px 20px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.detail-block h4 {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.detail-topic {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 0.9rem;
+}
+
+.detail-topic input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent-toggle); }
+
+.detail-topic .mandatory-note { color: var(--text-muted); font-size: 0.82rem; }
+
+.detail-hint { font-size: 0.8rem; color: var(--text-muted); margin: 10px 0 0; }
+
+.load-more-row { text-align: center; padding: 16px; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

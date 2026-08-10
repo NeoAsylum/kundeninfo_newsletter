@@ -21,6 +21,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
 - Ops-Skripte: `backup.sh` (nächtlicher Dump), `export-recipients.sh` (Notfall-CSV je Topic), `check-egress.sh` (Firewall-Vorabtest); Base-Images per Digest gepinnt.
 - Dokumentation: README (Quickstart), ARCHITECTURE (inkl. Egress-/Ingress-Matrix), RUNBOOK, 20 ADRs, DSGVO-Operations, Betriebsrat-Briefing, Fragenregister, CONTRIBUTING, CLAUDE.md.
 
+- **Empfänger-Verwaltung (Admin-Maske `empfaenger.html`):** aktive Empfänger durchsuchen (E-Mail/Name, Paging), Abonnements pro Empfänger pflegen (Pflicht-Topics gesperrt), Empfänger deaktivieren/reaktivieren (Selbst-Deaktivierung gesperrt; erneuter SSO-Login reaktiviert automatisch — Offboarding-Semantik, ADR-0010). API: `GET/PATCH /api/v1/admin/users`, `PUT/DELETE /api/v1/admin/users/{id}/subscriptions/{topic}`. Alle Admin-Fremdänderungen werden auditiert; bewusst ohne Verhaltensdaten (`last_login_at`) im UI/Payload (B5).
+
 ### Geändert
 - CSP wieder strikt (`script-src 'self'`): Seiten-Skripte in externe Dateien ausgelagert (`abos.js`, `versand.js`), Inline-Handler entfernt (ADR-0020; ersetzt die Zwischenlösung `'unsafe-inline'`).
 - DEV-Stack ohne Bind-Mounts (Docker-Desktop-File-Sharing-Falle auf Windows/OneDrive); Live-Reload optional über `compose.dev.reload.yaml`; Keycloak-Realm ins Image gebacken.

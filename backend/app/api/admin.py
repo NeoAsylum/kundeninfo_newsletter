@@ -35,21 +35,13 @@ from app.db.models import (
     User,
 )
 from app.domain.recipients import resolve_recipient_users
+from app.domain.topics import get_topic
 from app.mail.render import build_subject, render_mail
 
 # require_admin (Rolle aus dem Cookie) PLUS get_current_user (DB-Check auf is_active):
 # Ein offboardeter Admin behält sonst mit bestehendem Cookie bis zu 8 h Lesezugriff
 # auf Historie/Empfängerzahlen (Review-Befund). SESSION_STALE → Frontend erzwingt Re-Login.
 router = APIRouter(dependencies=[Depends(require_admin), Depends(get_current_user)])
-
-
-async def _get_active_topic(session: AsyncSession, topic_id: str) -> Topic:
-    topic = (
-        await session.execute(select(Topic).where(Topic.id == topic_id, Topic.is_active.is_(True)))
-    ).scalar_one_or_none()
-    if topic is None:
-        raise ApiError(404, "TOPIC_NOT_FOUND", f"Topic '{topic_id}' existiert nicht")
-    return topic
 
 
 def _build_subject_checked(severity: Severity, topic_name: str, title: str) -> str:
@@ -68,14 +60,14 @@ def _build_subject_checked(severity: Severity, topic_name: str, title: str) -> s
 @router.get("/topics/{topic_id}/recipient-count", response_model=RecipientCountOut)
 async def recipient_count(topic_id: str, session: SessionDep) -> RecipientCountOut:
     """Identische Auflösungslogik wie der echte Versand (Plan 7.2)."""
-    topic = await _get_active_topic(session, topic_id)
+    topic = await get_topic(session, topic_id)
     users = await resolve_recipient_users(session, topic)
     return RecipientCountOut(topic_id=topic.id, count=len(users))
 
 
 @router.post("/dispatches/preview", response_model=PreviewOut)
 async def preview(draft: DispatchDraft, session: SessionDep, settings: SettingsDep) -> PreviewOut:
-    topic = await _get_active_topic(session, draft.topic_id)
+    topic = await get_topic(session, draft.topic_id)
     severity = Severity(draft.severity)
     subject = _build_subject_checked(severity, topic.name, draft.title)
     html, _ = render_mail(settings, severity, topic.name, draft.title, draft.body)
@@ -90,7 +82,7 @@ async def create_dispatch(
     user: CurrentUserDep,
 ) -> DispatchOut:
     """Legt Auftrag + Empfänger-Snapshot in EINER Transaktion an (Outbox, Plan 6.3)."""
-    topic = await _get_active_topic(session, draft.topic_id)
+    topic = await get_topic(session, draft.topic_id)
     severity = Severity(draft.severity)
     recipients = await resolve_recipient_users(session, topic)
     if not recipients:

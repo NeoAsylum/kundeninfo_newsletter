@@ -34,6 +34,7 @@ Sobald der Command erfolgreich beendet ist, laufen alle 5 Docker-Container im En
 |---|---|---|
 | **Abo-Self-Service (UI)** | [http://localhost:8080/abos.html](http://localhost:8080/abos.html) | Login via SSO (Keycloak) |
 | **Versand-Maske (Admin UI)** | [http://localhost:8080/versand.html](http://localhost:8080/versand.html) | Nur für Benutzer mit Rolle `admin` |
+| **Empfänger-Verwaltung (Admin UI)** | [http://localhost:8080/empfaenger.html](http://localhost:8080/empfaenger.html) | Nur für Benutzer mit Rolle `admin` |
 | **Datenschutz-Hinweis** | [http://localhost:8080/datenschutz.html](http://localhost:8080/datenschutz.html) | Statische Infoseite (Art. 13 DSGVO) |
 | **REST-API Dokumentation** | [http://localhost:8080/docs](http://localhost:8080/docs) | Swagger UI (OpenAPI) |
 | **Mailpit Web-UI (Mock-Outlook)** | [http://localhost:8025](http://localhost:8025) | Alle versendeten Mails landen hier |

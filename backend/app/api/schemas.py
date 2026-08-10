@@ -57,3 +57,25 @@ class DispatchOut(BaseModel):
 class DispatchDetailOut(DispatchOut):
     body: str
     created_by_email: str | None
+
+
+class AdminUserOut(BaseModel):
+    """Empfänger-Verwaltung: bewusst OHNE last_login_at/created_at (Verhaltensdaten
+    bleiben hinter der Betriebsrats-Klärung B5, Plan 10.1)."""
+
+    id: int
+    email: str
+    display_name: str | None
+    is_active: bool
+    subscribed_topic_ids: list[str]
+
+
+class AdminUserListOut(BaseModel):
+    items: list[AdminUserOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminUserPatch(BaseModel):
+    is_active: bool
