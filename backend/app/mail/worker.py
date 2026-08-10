@@ -232,7 +232,14 @@ class OutboxWorker:
                             )
                         ).scalar_one()
                         email = recipient.email
-                    message = self.mailer.build_message(email, subject, html, text)
+                    # Testbetrieb (MAIL_REDIRECT_TO): alle Mails an die Umleitungs-
+                    # adresse; der Originalempfänger bleibt im Header und in der
+                    # Historie nachvollziehbar. 'sent' heißt dann: an die Umleitung
+                    # übergeben.
+                    deliver_to = self._s.mail_redirect_to or email
+                    message = self.mailer.build_message(deliver_to, subject, html, text)
+                    if self._s.mail_redirect_to:
+                        message["X-Original-Recipient"] = email
                 except Exception as exc:
                     await self._record_failure(
                         recipient_id, f"Nachricht nicht erstellbar: {exc}"[:500], "permanent"

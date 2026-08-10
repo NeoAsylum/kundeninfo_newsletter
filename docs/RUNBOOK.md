@@ -65,6 +65,38 @@ Sobald die zentrale Datenbank-Infrastruktur freigeschaltet ist:
 
 ---
 
+## 3b. Testversand an ein echtes Postfach (Abnahme/Demo)
+
+Für Abnahmen soll der Versand in einem echten Postfach ankommen, ohne dass reale
+Verteiler angeschrieben werden. Zwei unabhängige Schalter in der `.env`:
+
+1. **Umleitung** — `MAIL_REDIRECT_TO=<zieladresse>`: Alle Mails gehen an diese eine
+   Adresse. Die Versandhistorie behält die echten Empfänger; jede Mail trägt den
+   Header `X-Original-Recipient`. Achtung: Es wird weiterhin **eine Mail je
+   Empfänger** erzeugt — bei großen Verteilern flutet das das Zielpostfach.
+2. **Echter SMTP-Server** — Mailpit stellt nichts zu, für echte Zustellung braucht es
+   einen erreichbaren Server, z. B. für ein Microsoft-Konto:
+
+   ```dotenv
+   SMTP_HOST=smtp-mail.outlook.com
+   SMTP_PORT=587
+   SMTP_SECURITY=starttls
+   SMTP_AUTH_MODE=login
+   SMTP_USER=<konto@outlook.de>
+   SMTP_PASSWORD=<App-Passwort, NICHT das Kontopasswort>
+   MAIL_FROM=<konto@outlook.de>          # muss zum authentifizierten Konto passen
+   MAIL_REDIRECT_TO=<konto@outlook.de>
+   ```
+
+   Das App-Passwort wird unter `account.microsoft.com` → Sicherheit erzeugt und
+   erfordert aktivierte Zwei-Faktor-Authentifizierung. Outlook.com drosselt bei
+   ~300 Mails/Tag.
+
+**Wichtig:** Nach jeder `.env`-Änderung neu starten (`make dev` bzw.
+`make prod-localdb`) — Konfiguration wird beim Start gelesen. Läuft der Stack mit
+eingebackenem Code, muss das Image nach Codeänderungen neu gebaut werden (`--build`).
+Zum Zurückschalten auf Mailpit die SMTP-Zeilen und `MAIL_REDIRECT_TO` wieder leeren.
+
 ## 4. Notfall-Versand bei Systemausfall
 
 Fällt während einer Großstörung das Portal, die DB oder der IdP aus:

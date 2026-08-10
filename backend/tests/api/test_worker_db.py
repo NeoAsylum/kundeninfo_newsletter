@@ -28,6 +28,7 @@ class FakeMailer(Mailer):
     def __init__(self, settings, fail_plan=None, connect_failures=0):
         super().__init__(settings)
         self.sent: list[str] = []
+        self.messages: list = []
         self.fail_plan = {k: list(v) for k, v in (fail_plan or {}).items()}
         self.connect_failures = connect_failures
 
@@ -45,6 +46,7 @@ class FakeMailer(Mailer):
             if exc is not None:
                 raise exc
         self.sent.append(to)
+        self.messages.append(message)
 
     async def close(self, smtp):
         pass
@@ -320,3 +322,22 @@ async def test_defekter_auftrag_blockiert_andere_nicht(app, monkeypatch):
     await worker.tick()  # A wird im Folgetick nachgeholt (Rendering jetzt intakt)
     bad, _ = await load(app, bad_id)
     assert bad.status == DispatchStatus.completed
+
+
+async def test_mail_redirect_to_testadresse(app):
+    """MAIL_REDIRECT_TO (Testbetrieb): alle Mails gehen an die Umleitungsadresse,
+    Originalempfänger bleiben in Header und Historie nachvollziehbar."""
+    dispatch_id = await create_dispatch(app, ["a@x.de", "b@x.de"])
+    settings = worker_settings(mail_redirect_to="tester@outlook.example")
+    mailer = FakeMailer(settings)
+    worker = OutboxWorker(app.state.sessionmaker, settings, mailer=mailer)
+
+    await worker.tick()
+
+    assert mailer.sent == ["tester@outlook.example", "tester@outlook.example"]
+    originals = sorted(m["X-Original-Recipient"] for m in mailer.messages)
+    assert originals == ["a@x.de", "b@x.de"]
+
+    dispatch, recipients = await load(app, dispatch_id)
+    assert dispatch.status == DispatchStatus.completed
+    assert sorted(r.email for r in recipients) == ["a@x.de", "b@x.de"]  # Historie unverändert

@@ -23,6 +23,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
 
 - **Empfänger-Verwaltung (Admin-Maske `empfaenger.html`), verteiler-zentriert:** zuerst Verteiler per Dropdown wählen, dann aktive Empfänger per E-Mail-Filter durchsuchen (Paging) und das Abonnement pro Zeile per „Abonniert“-Checkbox pflegen; Pflicht-Verteiler zeigen alle aktiven Empfänger mit gesperrter Checkbox (implizites Abo, ADR-0009). API: `GET /api/v1/admin/users` (E-Mail-Suche mit Wildcard-Escaping, `is_active`-Filter), `PUT/DELETE /api/v1/admin/users/{id}/subscriptions/{topic}`; zusätzlich `PATCH /api/v1/admin/users/{id}` zum Deaktivieren/Reaktivieren (API-only, Selbst-Deaktivierung gesperrt; erneuter SSO-Login reaktiviert — Offboarding-Semantik, ADR-0010). Admin-Fremdänderungen werden bei echter Änderung auditiert; bewusst ohne Verhaltensdaten (`last_login_at`) im UI/Payload (B5).
 
+- **Test-Umleitung `MAIL_REDIRECT_TO`:** Leitet alle ausgehenden Mails an eine einzelne Adresse um (Default aus). Die Versandhistorie behält die echten Empfänger, jede Mail trägt zusätzlich `X-Original-Recipient`. Gedacht für Abnahme-/Demozwecke mit einem echten Postfach — in PROD leer lassen.
+
 ### Geändert
 - CSP wieder strikt (`script-src 'self'`): Seiten-Skripte in externe Dateien ausgelagert (`abos.js`, `versand.js`), Inline-Handler entfernt (ADR-0020; ersetzt die Zwischenlösung `'unsafe-inline'`).
 - DEV-Stack ohne Bind-Mounts (Docker-Desktop-File-Sharing-Falle auf Windows/OneDrive); Live-Reload optional über `compose.dev.reload.yaml`; Keycloak-Realm ins Image gebacken.

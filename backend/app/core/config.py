@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     mail_from: str
     mail_from_name: str = "Zentrales Problemmanagement"
+    # Testbetrieb: leitet ALLE ausgehenden Mails an diese Adresse um (leer = aus).
+    # Originalempfänger stehen im Header X-Original-Recipient und in der Historie.
+    mail_redirect_to: str = ""
     smtp_max_per_minute: int = 0
     smtp_batch_size: int = 100
     smtp_timeout_s: int = 10
