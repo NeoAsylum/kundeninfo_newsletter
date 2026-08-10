@@ -307,6 +307,69 @@ ssh root@<host> 'cd /opt/stoerungsinfo && docker compose -f compose.yaml \
     -f compose.db.yaml -f compose.public.yaml ps'
 ```
 
+### Paketfilter (Firewall)
+
+```bash
+bash deploy/vm/firewall.sh            # Regeln setzen (idempotent)
+bash deploy/vm/firewall.sh --status   # anzeigen
+CF_ONLY=false bash deploy/vm/firewall.sh   # Cloudflare-Beschränkung aufheben
+```
+
+| Regel | Wirkung |
+|---|---|
+| **443 nur von Cloudflare** | Ohne diese Regel ist die Server-IP direkt erreichbar und Cloudflares Schutz, WAF und Ratenlimits sind mit einem `curl https://<ip>/` umgangen. Die Bereiche kommen von `cloudflare.com/ips-v4`/`-v6`, mit lokalem Zwischenspeicher als Rückfalloption (IPv4 **und** IPv6). |
+| **Port 80 bleibt offen** | Dort liegen nur ACME-Prüfung und Weiterleitung — kein Inhalt, keine Anmeldung. Sperrt man ihn mit (`CF_ONLY_HTTP=true`), scheitert die Zertifikatserneuerung, sobald Cloudflare auf „DNS only" steht. |
+| **SSH mit Verbindungsbremse** | `ufw limit 22/tcp` erlaubt 6 Versuche in 30 s pro IP, zusätzlich zu fail2ban. |
+| **Alles andere eingehend: verworfen** | ufw-Standard `deny incoming`; DROP statt REJECT, damit Scanner keine Rückmeldung erhalten. |
+
+**Warum eine eigene iptables-Kette und nicht nur ufw:** Docker veröffentlicht
+Container-Ports über eigene DNAT-Regeln, die die ufw-INPUT-Kette **umgehen** — ein
+`ufw deny 443` bliebe hier wirkungslos. Wirksam ist nur die Kette `DOCKER-USER`, die
+Docker vor seinen eigenen FORWARD-Regeln auswertet. Das Skript legt dafür eine eigene
+Kette `STOERUNGSINFO` an (damit ein Flush keine fremden Regeln trifft) und hängt sie
+dort ein.
+
+**Persistenz:** iptables-Regeln überleben keinen Neustart, und Docker baut seine Ketten
+beim Start neu auf. Die Unit `stoerungsinfo-firewall.service` (nach `docker.service`)
+setzt sie deshalb erneut. Nach einem Docker-Neustart verifiziert.
+
+**Nach einer Änderung immer beides prüfen** — sonst fällt eine zu strenge Regel erst
+auf, wenn niemand mehr aufs Portal kommt:
+
+```bash
+curl -sk --max-time 8 https://<server-ip>/healthz     # muss ins Timeout laufen
+curl -s https://<domain>/healthz                       # muss 200 liefern
+ssh root@<server-ip> 'echo ok'                         # muss funktionieren
+```
+
+**Cloudflare-Bereiche aktualisieren** (Cloudflare ändert sie selten, aber nicht nie —
+danach zeigten Ratenlimits und Logs auf Proxy-Adressen statt auf Nutzer):
+
+```bash
+bash deploy/vm/update-cloudflare-ranges.sh   # NGINX-Liste + Firewall in einem Schritt
+```
+
+**Echte Client-IP:** `deploy/nginx/includes/cloudflare-real-ip.inc` lässt NGINX die
+Adresse aus `CF-Connecting-IP` übernehmen — aber nur, wenn die Anfrage aus einem
+Cloudflare-Bereich kommt (sonst könnte jeder eine fremde IP behaupten). Ohne diese
+Datei sehen alle Ratenlimits nur Cloudflare-Adressen: Echte Nutzer sperren sich
+gegenseitig aus, ein Angreifer verteilt sich über mehrere Standorte.
+
+### Weitere Härtungsmöglichkeiten (nicht aktiviert)
+
+* **SSH auf feste Adressen beschränken** (`ufw allow from <ip> to any port 22`) — wirksam,
+  aber bei wechselnder Heim-IP sperrt man sich schnell selbst aus. Alternative: SSH auf
+  einen anderen Port legen (verringert nur das Rauschen, keine echte Sicherheit).
+* **Ausgehende Verbindungen beschränken** (`ufw default deny outgoing` plus
+  Ausnahmen für DNS, NTP, HTTPS, SMTP 587). Erschwert Datenabfluss, bricht aber leicht
+  Image-Builds und Paketaktualisierungen — nur mit Testfenster einführen.
+* **Cloudflare-Zugriffsregeln** ersetzen Firewallarbeit teilweise: Länder- oder
+  Bot-Sperren, „Under Attack"-Modus, oder eine Access-Policy vor dem Portal (dann
+  brauchte niemand mehr das offene Registrierungsformular).
+* **Docker-Ports an Loopback binden** (`127.0.0.1:8081:8081`) für Dienste, die nur über
+  einen SSH-Tunnel erreichbar sein sollen — umgeht das ufw-Problem elegant, weil gar
+  nichts nach außen veröffentlicht wird.
+
 ### Absicherung gegen Missbrauch (öffentlich = Angriffsfläche)
 
 Ein Sicherheitsreview dieser Konfiguration hat mehrere Lücken aufgedeckt, die behoben

@@ -28,6 +28,8 @@ server {
     listen [::]:80;
     server_name ${PUBLIC_HOST};
 
+    include /etc/nginx/includes/cloudflare-real-ip.inc;
+
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
         default_type "text/plain";

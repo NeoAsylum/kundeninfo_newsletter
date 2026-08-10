@@ -25,7 +25,9 @@ server {
     ssl_session_cache shared:SSL:5m;
     ssl_session_timeout 1h;
 
-    add_header Strict-Transport-Security "max-age=31536000" always;
+    # Echte Client-IP hinter Cloudflare — muss VOR den Limits stehen, damit
+    # $binary_remote_addr die Nutzer-IP ist und nicht die des Proxys.
+    include /etc/nginx/includes/cloudflare-real-ip.inc;
 
     limit_conn perip 24;
 
