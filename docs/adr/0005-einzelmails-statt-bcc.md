@@ -16,4 +16,5 @@
 
 ## Verworfene Alternativen
 
-* **BCC-Sammelmail:** müsste an Exchange-Empfängerlimits (oft 500/Mail) ohnehin chunken — erbt die Komplexität und verliert empfängergenauen Status.
+* **BCC-Sammelmail:** müsste an Exchange-Empfängerlimits (oft 500/Mail) ohnehin chunken — erbt die Komplexität und verliert empfängergenauen Status. Hinweis: Exchange-Empfänger-Ratenlimits zählen Envelope-Empfänger — Chunking reduziert die Transaktionszahl, nicht die gezählte Empfängermenge.
+* **Versand an AD-Verteilergruppen (serverseitige Expansion, „wie heute aus Outlook"):** Eine Mail an die Gruppenadresse, Exchange fächert intern auf — deshalb greifen beim heutigen manuellen Versand an 2.000+-Verteiler keine Limits. Verworfen, weil die App dann Abos in AD-Gruppen zurücksynchronisieren müsste: Service-Account mit AD-Gruppen-Schreibrechten (heikel, antragspflichtig), Mitgliedschafts-Wahrheit in zwei Systemen mit Sync-Drift, und der empfängergenaue Versandstatus (Historie, Retry, spätere Dashboards) ginge vollständig verloren — Exchange meldet nicht zurück, wer aus einer Gruppe zugestellt wurde.
