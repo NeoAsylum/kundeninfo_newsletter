@@ -17,7 +17,7 @@ CHECKS_FAILED = 0
 def check(name: str, ok: bool, extra: str = "") -> None:
     global CHECKS_FAILED
     status = "OK  " if ok else "FAIL"
-    print(f"[{status}] {name}" + (f" — {extra}" if extra else ""))
+    print(f"[{status}] {name}" + (f" - {extra}" if extra else ""))
     if not ok:
         CHECKS_FAILED += 1
 
@@ -50,7 +50,7 @@ def main() -> int:
         check("readyz ok (DB, SMTP, Outbox)", r.status_code == 200, r.text[:200])
 
         r = client.get(f"{base}/api/v1/me")
-        check("Auth nicht versehentlich offen (/me ohne Session → 401)", r.status_code == 401)
+        check("Auth nicht versehentlich offen (/me ohne Session -> 401)", r.status_code == 401)
 
         r = client.get(f"{base}/")
         check(
@@ -62,7 +62,7 @@ def main() -> int:
         r = client.get(f"{base}/nginx-health")
         check("NGINX-Stub", r.status_code == 200)
 
-    print(f"\n{'SMOKE FEHLGESCHLAGEN' if CHECKS_FAILED else 'SMOKE GRÜN'} ({CHECKS_FAILED} Fehler)")
+    print(f"\n{'SMOKE FEHLGESCHLAGEN' if CHECKS_FAILED else 'SMOKE GRUEN'} ({CHECKS_FAILED} Fehler)")
     return 1 if CHECKS_FAILED else 0
 
 
