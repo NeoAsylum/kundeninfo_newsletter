@@ -96,10 +96,10 @@
     }
 
     async function init() {
+      const list = document.getElementById("topic-list");
       try {
         await App.initTopbar("abos");
         const topics = await App.requestJson("/api/v1/topics");
-        const list = document.getElementById("topic-list");
         list.innerHTML = "";
         if (!topics.length) {
           list.innerHTML = '<div class="card empty-state">Derzeit sind keine Verteiler verfügbar.</div>';
@@ -107,6 +107,12 @@
         }
         topics.forEach((topic) => list.appendChild(renderTopic(topic)));
       } catch (error) {
+        list.innerHTML =
+          '<div class="card empty-state">' +
+          '<h3>Laden fehlgeschlagen</h3>' +
+          '<p style="margin: 0.5rem 0 1rem 0; color: #64748b;">' + App.escapeHtml(error.message) + '</p>' +
+          '<button class="btn btn-primary" onclick="window.location.reload()">Erneut versuchen (F5)</button>' +
+          '</div>';
         App.toast(error.message, true);
       }
     }

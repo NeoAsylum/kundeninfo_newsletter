@@ -277,7 +277,13 @@ placeholder="Sehr geehrte Damen und Herren,&#10;&#10;aktuell kommt es zu Einschr
       loadHistory();
     }
 
-    init().catch((error) => App.toast(error.message, true));
+    init().catch((error) => {
+      const tbody = el("history-body");
+      if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Laden fehlgeschlagen: ' + App.escapeHtml(error.message) + '</td></tr>';
+      }
+      App.toast(error.message, true);
+    });
   </script>
 </body>
 </html>
