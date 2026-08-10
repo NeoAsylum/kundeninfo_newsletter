@@ -183,3 +183,43 @@ async def test_admin_unbekanntes_topic_404(client, app, auth_headers, make_user)
     )
     assert res3.status_code == 404
     assert res3.json()["code"] == "TOPIC_NOT_FOUND"
+
+
+async def test_admin_zugriff_endet_mit_deaktiviertem_user(client, app, auth_headers, make_user):
+    """Offboarding-Fix (Review): Admin-Cookie allein reicht nicht — der DB-User muss
+    aktiv sein, sonst 401 SESSION_STALE auch auf Lese-Endpunkten."""
+    await make_user(sub=ADMIN[0], email=ADMIN[1], active=False)
+    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    response = await client.get("/api/v1/admin/topics/kap/recipient-count", headers=headers)
+    assert response.status_code == 401
+    assert response.json()["code"] == "SESSION_STALE"
+
+
+async def test_betreff_ueberlauf_422_statt_500(client, app, auth_headers, make_user):
+    """Präfix + Topic-Name + Titel > 255 → sauberer 422 statt DataError (Review-Befund)."""
+    from sqlalchemy import text
+
+    await _setup_users(app, make_user)
+    async with app.state.sessionmaker() as session:
+        await session.execute(
+            text(
+                "INSERT INTO topics (id, name, is_mandatory, is_active) "
+                "VALUES ('langname', :name, 0, 1) ON DUPLICATE KEY UPDATE name = :name"
+            ),
+            {"name": "L" * 120},
+        )
+        await session.commit()
+    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    try:
+        response = await client.post(
+            "/api/v1/admin/dispatches/preview",
+            headers=headers,
+            json={"topic_id": "langname", "severity": "stoerung", "title": "T" * 150, "body": "B"},
+        )
+        assert response.status_code == 422
+        assert response.json()["code"] == "SUBJECT_TOO_LONG"
+    finally:
+        # Topics überleben clean_db bewusst (Seed) — Testtopic selbst aufräumen
+        async with app.state.sessionmaker() as session:
+            await session.execute(text("DELETE FROM topics WHERE id = 'langname'"))
+            await session.commit()

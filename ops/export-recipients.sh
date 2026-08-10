@@ -25,6 +25,14 @@ TOPICS="$(run_sql 'SELECT id, is_mandatory FROM topics WHERE is_active = 1;')"
 
 echo "$TOPICS" | while read -r topic_id mandatory; do
     [ -n "$topic_id" ] || continue
+    # Whitelist gegen SQL-/Shell-Injection: topic_id wird unten in SQL und in einen
+    # sh -c-Aufruf interpoliert — nur Slug-Zeichen zulassen (Review-Befund).
+    case "$topic_id" in
+        *[!a-zA-Z0-9_-]*)
+            echo "WARNUNG: Topic-ID '$topic_id' enthält unerlaubte Zeichen — übersprungen" >&2
+            continue
+            ;;
+    esac
     OUT="$EXPORT_DIR_TODAY/$topic_id.csv"
     if [ "$mandatory" = "1" ]; then
         # Pflicht-Topic: alle aktiven User (implizit, ADR-009)

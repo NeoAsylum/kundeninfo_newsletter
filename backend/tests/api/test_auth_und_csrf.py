@@ -47,10 +47,23 @@ async def test_healthz_offen(client):
     assert "version" in response.json()
 
 
-async def test_auth_logout(client):
-    response = await client.get("/auth/logout", follow_redirects=False)
-    assert response.status_code == 302
-    assert response.headers["location"].endswith("/")
+async def test_auth_logout_post(client):
+    """Logout ist POST + CSRF-Header (kein Drive-by-Logout per Link, Review-Befund)."""
+    response = await client.post("/auth/logout", headers={"X-Requested-With": "fetch"})
+    assert response.status_code == 200
+    assert response.json()["logout_url"].endswith("/")
+    assert 'session=""' in response.headers.get("set-cookie", "")
+
+
+async def test_auth_logout_ohne_csrf_header_403(client):
+    response = await client.post("/auth/logout")
+    assert response.status_code == 403
+    assert response.json()["code"] == "CSRF"
+
+
+async def test_auth_logout_get_405(client):
+    response = await client.get("/auth/logout")
+    assert response.status_code == 405
 
 
 async def test_auth_callback_idp_error(client):

@@ -89,10 +89,19 @@ class OutboxWorker:
                 ).scalars()
             )
         for dispatch_id in own_ids:
-            await self.process_dispatch(dispatch_id)
+            await self._process_isolated(dispatch_id)
         # 2) Neue Aufträge claimen und sofort verarbeiten.
         while (claimed_id := await self.claim_next()) is not None:
-            await self.process_dispatch(claimed_id)
+            await self._process_isolated(claimed_id)
+
+    async def _process_isolated(self, dispatch_id: int) -> None:
+        """Fehlerisolation pro Auftrag: Ein defekter Dispatch darf weder die übrigen
+        'sending'-Aufträge noch das Claiming neuer Aufträge blockieren (Review-Befund:
+        sonst Starvation, weil own_ids sortiert ist und derselbe Auftrag immer zuerst kommt)."""
+        try:
+            await self.process_dispatch(dispatch_id)
+        except Exception:
+            log.exception("Versand %s fehlgeschlagen — übrige Aufträge laufen weiter", dispatch_id)
 
     async def recover_stale(self) -> None:
         threshold = utcnow() - timedelta(seconds=self._s.worker_stale_after_s)
@@ -209,14 +218,27 @@ class OutboxWorker:
                 60.0 / self._s.smtp_max_per_minute if self._s.smtp_max_per_minute > 0 else 0.0
             )
             for recipient_id in recipient_ids:
-                async with self._sm() as session:
-                    recipient = (
-                        await session.execute(
-                            select(DispatchRecipient).where(DispatchRecipient.id == recipient_id)
-                        )
-                    ).scalar_one()
-                    email = recipient.email
-                message = self.mailer.build_message(email, subject, html, text)
+                # Nachladen + Nachrichtenbau gehören MIT ins Fehlerhandling: Eine
+                # deterministisch kaputte Adresse (z. B. Headerzeichen aus dem IdP)
+                # würde sonst nie auf failed laufen und den Auftrag ewig in
+                # 'sending' halten (Review-Befund "Poison-Empfänger").
+                try:
+                    async with self._sm() as session:
+                        recipient = (
+                            await session.execute(
+                                select(DispatchRecipient).where(
+                                    DispatchRecipient.id == recipient_id
+                                )
+                            )
+                        ).scalar_one()
+                        email = recipient.email
+                    message = self.mailer.build_message(email, subject, html, text)
+                except Exception as exc:
+                    await self._record_failure(
+                        recipient_id, f"Nachricht nicht erstellbar: {exc}"[:500], "permanent"
+                    )
+                    await self._heartbeat(dispatch_id)
+                    continue
                 try:
                     await self.mailer.send(smtp, message)
                 except Exception as exc:

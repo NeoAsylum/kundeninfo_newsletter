@@ -57,9 +57,13 @@ def worker_settings(**overrides):
 
 async def create_dispatch(app, emails, status=DispatchStatus.pending, **dispatch_overrides):
     async with app.state.sessionmaker() as session:
-        creator = User(oidc_sub="worker-creator", email="creator@example.corp", is_active=True)
-        session.add(creator)
-        await session.flush()
+        creator = (
+            await session.execute(select(User).where(User.oidc_sub == "worker-creator"))
+        ).scalar_one_or_none()
+        if creator is None:
+            creator = User(oidc_sub="worker-creator", email="creator@example.corp", is_active=True)
+            session.add(creator)
+            await session.flush()
         dispatch = Dispatch(
             topic_id="kap",
             severity=Severity.stoerung,
@@ -258,3 +262,61 @@ async def test_retention_default_aus_loescht_nichts(app):
 
     _, recipients = await load(app, dispatch_id)
     assert len(recipients) == 1  # keine Frist geraten — nichts gelöscht
+
+
+async def test_poison_empfaenger_blockiert_versand_nicht(app):
+    """Review-Befund: Eine kaputte Adresse (Headerzeichen) muss auf failed laufen —
+    der Auftrag darf nicht ewig in 'sending' hängen, andere Empfänger werden versorgt."""
+    dispatch_id = await create_dispatch(app, ["gut@x.de", "kaputt@x.de\nBcc: evil@x.de"])
+    settings = worker_settings()
+    mailer = FakeMailer(settings)
+    worker = OutboxWorker(app.state.sessionmaker, settings, mailer=mailer)
+
+    await worker.tick()
+
+    dispatch, recipients = await load(app, dispatch_id)
+    assert dispatch.status == DispatchStatus.completed_with_errors
+    by_email = {r.email: r for r in recipients}
+    assert by_email["gut@x.de"].status == RecipientStatus.sent
+    poison = by_email["kaputt@x.de\nBcc: evil@x.de"]
+    assert poison.status == RecipientStatus.failed
+    assert "Nachricht nicht erstellbar" in poison.last_error
+
+
+async def test_defekter_auftrag_blockiert_andere_nicht(app, monkeypatch):
+    """Review-Befund Tick-Starvation: Wirft Auftrag A deterministisch, müssen B und
+    neue Aufträge trotzdem verarbeitet werden."""
+    import app.mail.worker as worker_module
+
+    bad_id = await create_dispatch(
+        app,
+        ["a@x.de"],
+        status=DispatchStatus.sending,
+        started_at=utcnow(),
+        last_progress_at=utcnow(),
+    )
+    good_id = await create_dispatch(app, ["b@x.de"])
+
+    settings = worker_settings()
+    mailer = FakeMailer(settings)
+    worker = OutboxWorker(app.state.sessionmaker, settings, mailer=mailer)
+
+    original = worker_module.render_mail
+    calls = {"n": 0}
+
+    def explode_only_first(*args, **kwargs):
+        # A (kleinere ID, 'sending') wird zuerst verarbeitet → erster Aufruf wirft
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("Template kaputt (Test)")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(worker_module, "render_mail", explode_only_first)
+
+    await worker.tick()
+    good, _ = await load(app, good_id)
+    assert good.status == DispatchStatus.completed  # B lief trotz A-Fehler im SELBEN Tick
+
+    await worker.tick()  # A wird im Folgetick nachgeholt (Rendering jetzt intakt)
+    bad, _ = await load(app, bad_id)
+    assert bad.status == DispatchStatus.completed

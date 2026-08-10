@@ -25,5 +25,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
 - CSP wieder strikt (`script-src 'self'`): Seiten-Skripte in externe Dateien ausgelagert (`abos.js`, `versand.js`), Inline-Handler entfernt (ADR-0020; ersetzt die Zwischenlösung `'unsafe-inline'`).
 - DEV-Stack ohne Bind-Mounts (Docker-Desktop-File-Sharing-Falle auf Windows/OneDrive); Live-Reload optional über `compose.dev.reload.yaml`; Keycloak-Realm ins Image gebacken.
 
+### Behoben (adversariales Code-Review, 19 Befunde — alle „mittel“ + 10 „niedrig“ gefixt)
+- **Worker:** Fehlerisolation pro Versandauftrag (ein defekter Auftrag konnte alle weiteren blockieren — Starvation); „Poison-Empfänger“ (nicht erstellbare Nachricht, z. B. Headerzeichen in der Adresse) läuft jetzt auf `failed` statt den Auftrag ewig in `sending` zu halten.
+- **Zeitbasis:** DB-Session-Zeitzone fest auf UTC gepinnt (`init_command`) — Rückstau-Check, Retention und Datumsanzeige bleiben auch korrekt, wenn die externe Konzern-DB nicht in UTC läuft.
+- **AuthZ:** Admin-Endpunkte prüfen zusätzlich den DB-User (`is_active`) — offboardete Admins verlieren den Zugriff sofort, nicht erst nach Session-Ablauf.
+- **Logout:** POST mit CSRF-Header statt GET (kein Drive-by-Logout); Frontend navigiert zur IdP-End-Session-URL.
+- **Härtung:** `/readyz` liefert nach außen nur generische Fehlzustände (keine DSN-/Host-Details); `export-recipients.sh` validiert Topic-Slugs (SQL-/Shell-Injection-Schutz); Betreff-Überlauf (> 255) → 422 statt 500; Entrypoint wiederholt bei DB-Warten keine fehlgeschlagenen Migrationen.
+- **Frontend:** 401-Redirect mit Schleifenschutz; Hintergrund-Requests (Vorschau/Polling) navigieren bei Sitzungsablauf nicht mehr weg (Formularinhalt bleibt erhalten); Historie-Polling überlebt transiente Fehler; Attribut-Injection über Topic-Namen beseitigt (DOM-API statt String-HTML); Enum-Felder werden escaped; Leerzustand der Versand-Maske; kein DEV-Testuser-Name im PROD-UI.
+
 ### Bekannte Abweichungen vom Plan (je mit ADR)
 - Handgeschriebenes CSS statt Tailwind (ADR-0018); aiomysql + `pool_recycle` statt asyncmy + `pool_pre_ping` (ADR-0019); `Secure`-Cookie-Flag nur bei https (ADR-0003); `/readyz` ohne TLS-Restlaufzeit-Check (Überwachung via RUNBOOK-Inventar).

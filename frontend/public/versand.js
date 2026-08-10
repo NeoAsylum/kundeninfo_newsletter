@@ -38,6 +38,7 @@ async function refreshPreview() {
   try {
     const data = await App.requestJson("/api/v1/admin/dispatches/preview", {
       method: "POST",
+      background: true, // 401 darf die gerade getippte Meldung nicht wegnavigieren
       body: JSON.stringify({
         topic_id: form.topic(), severity: form.severity(),
         title: form.title(), body: form.body(),
@@ -56,7 +57,8 @@ async function refreshRecipientCount() {
   el("recipient-count").textContent = "–";
   try {
     const data = await App.requestJson(
-      "/api/v1/admin/topics/" + encodeURIComponent(topicId) + "/recipient-count");
+      "/api/v1/admin/topics/" + encodeURIComponent(topicId) + "/recipient-count",
+      { background: true });
     el("recipient-count").textContent = data.count.toLocaleString("de-DE");
   } catch (error) {
     el("recipient-count").textContent = "?";
@@ -65,18 +67,20 @@ async function refreshRecipientCount() {
 
 async function loadHistory() {
   try {
-    const items = await App.requestJson("/api/v1/admin/dispatches?limit=20");
+    const items = await App.requestJson("/api/v1/admin/dispatches?limit=20", { background: true });
     const tbody = el("history-body");
     if (!items.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Noch keine Versände.</td></tr>';
       return;
     }
+    // Auch Enum-Felder (severity/status) escapen — kein stilles Vertrauen darauf,
+    // dass die eigene API nie andere Werte liefert (Review-Befund).
     tbody.innerHTML = items.map((d) => `
       <tr>
         <td>${App.formatDateTime(d.created_at)}</td>
-        <td><span class="sev-chip"><span class="dot dot-${d.severity}"></span>${App.escapeHtml(d.subject)}</span></td>
+        <td><span class="sev-chip"><span class="dot dot-${App.escapeHtml(d.severity)}"></span>${App.escapeHtml(d.subject)}</span></td>
         <td>${App.escapeHtml(d.topic_name)}</td>
-        <td><span class="status-badge status-${d.status}">${statusLabel(d)}</span></td>
+        <td><span class="status-badge status-${App.escapeHtml(d.status)}">${App.escapeHtml(statusLabel(d))}</span></td>
         <td class="num">${d.sent_count}/${d.recipient_count}</td>
         <td class="num">${d.failed_count}</td>
       </tr>`).join("");
@@ -84,7 +88,10 @@ async function loadHistory() {
     clearTimeout(historyTimer);
     if (anyOpen) historyTimer = setTimeout(loadHistory, 4000);
   } catch (error) {
-    /* Historie-Polling still scheitern lassen */
+    // Ein transienter Fehler darf die Statusverfolgung nicht dauerhaft beenden
+    // (Review-Befund): weiter pollen, mit gestrecktem Intervall.
+    clearTimeout(historyTimer);
+    historyTimer = setTimeout(loadHistory, 10000);
   }
 }
 
@@ -146,10 +153,11 @@ function renderNoPermission(me) {
   const loginLink = document.createElement("a");
   loginLink.href = "/auth/login?prompt=login&next=/versand.html";
   loginLink.className = "btn btn-primary";
-  loginLink.textContent = "Als Admin anmelden (admin1)";
+  // Umgebungsneutral: kein DEV-Testuser-Name im PROD-Image (Review-Befund)
+  loginLink.textContent = "Mit anderem Konto anmelden";
   const logoutLink = document.createElement("a");
-  logoutLink.href = "/auth/logout";
-  logoutLink.className = "btn";
+  logoutLink.href = "#";
+  logoutLink.className = "btn logout-link"; // Delegation in app.js → POST-Logout
   logoutLink.textContent = "Abmelden";
   actions.append(loginLink, logoutLink);
 
@@ -167,6 +175,12 @@ async function init() {
   }
   const topics = await App.requestJson("/api/v1/topics");
   const select = el("topic");
+  if (!topics.length) {
+    select.disabled = true;
+    el("send-button").textContent = "Keine aktiven Verteiler vorhanden";
+    App.toast("Es sind derzeit keine aktiven Verteiler vorhanden.", true);
+    return;
+  }
   topics.forEach((topic) => {
     topicNames[topic.id] = topic.name;
     const option = document.createElement("option");

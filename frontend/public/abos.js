@@ -27,14 +27,17 @@ function renderTopic(topic) {
     locked.title = "Pflicht-Verteiler — nicht abwählbar";
     card.appendChild(locked);
   } else {
+    // DOM-API statt String-HTML: escapeHtml deckt Attribut-Kontexte (Quotes)
+    // nicht ab — setAttribute ist injektionssicher (Review-Befund).
     const label = document.createElement("label");
     label.className = "toggle";
-    const srText = "Abonnement " + topic.name;
-    label.innerHTML =
-      '<input type="checkbox" aria-label="' + App.escapeHtml(srText) + '"' +
-      (topic.subscribed ? " checked" : "") + ">" +
-      '<span class="toggle-track"></span>';
-    const input = label.querySelector("input");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = topic.subscribed;
+    input.setAttribute("aria-label", "Abonnement " + topic.name);
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    label.append(input, track);
     input.addEventListener("change", () => onToggle(topic, input));
     card.appendChild(label);
   }

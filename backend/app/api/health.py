@@ -1,6 +1,7 @@
 """Health-Endpunkte (Plan 3.3): /healthz = Liveness, /readyz = externes Monitoring."""
 
 import asyncio
+import logging
 import os
 import time
 from datetime import timedelta
@@ -11,6 +12,7 @@ from sqlalchemy import select, text
 from app.core.clock import utcnow
 from app.db.models import Dispatch, DispatchStatus
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 BACKLOG_MAX_AGE_S = 900  # Rückstau: ältester offener Versand > 15 min → degraded
@@ -46,15 +48,21 @@ async def readyz(request: Request, response: Response) -> dict:
     settings = request.app.state.settings
     checks: dict[str, str] = {}
 
+    # Nach außen nur generische Zustände — /readyz ist unauthentifiziert erreichbar,
+    # Verbindungsfehler enthielten sonst DB-/Relay-Hosts aus dem DSN (Review-Befund).
+    # Details stehen im Log.
     try:
         async with request.app.state.sessionmaker() as session:
             await session.execute(text("SELECT 1"))
         checks["db"] = "ok"
     except Exception as exc:
-        checks["db"] = f"fehler: {exc}"
+        log.warning("readyz: DB-Check fehlgeschlagen: %s", exc)
+        checks["db"] = "fehler"
 
     smtp_ok, smtp_error = await _check_smtp(settings.smtp_host, settings.smtp_port)
-    checks["smtp"] = "ok" if smtp_ok else f"fehler: {smtp_error}"
+    if not smtp_ok:
+        log.warning("readyz: SMTP-Check fehlgeschlagen: %s", smtp_error)
+    checks["smtp"] = "ok" if smtp_ok else "fehler"
 
     checks["outbox"] = "ok"
     if checks["db"] == "ok":
@@ -74,7 +82,8 @@ async def readyz(request: Request, response: Response) -> dict:
             if oldest_open is not None:
                 checks["outbox"] = f"rückstau: Versand {oldest_open} älter als {BACKLOG_MAX_AGE_S}s"
         except Exception as exc:
-            checks["outbox"] = f"fehler: {exc}"
+            log.warning("readyz: Outbox-Check fehlgeschlagen: %s", exc)
+            checks["outbox"] = "fehler"
 
     degraded = any(v != "ok" for v in checks.values())
     if degraded:

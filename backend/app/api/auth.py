@@ -102,8 +102,18 @@ async def callback(
     return response
 
 
-@router.get("/auth/logout")
-async def logout(request: Request, settings: SettingsDep) -> RedirectResponse:
+@router.post("/auth/logout")
+async def logout(request: Request, settings: SettingsDep) -> JSONResponse:
+    """POST statt GET: verhindert Drive-by-Logout per Link (Review-Befund).
+
+    /auth/* liegt außerhalb der /api-CSRF-Middleware → Header-Pflicht hier explizit.
+    Das Frontend ruft per fetch auf und navigiert selbst zur logout_url (IdP-End-Session).
+    """
+    if request.headers.get("x-requested-with") != "fetch":
+        return JSONResponse(
+            {"detail": "CSRF-Schutz: Header X-Requested-With fehlt", "code": "CSRF"},
+            status_code=403,
+        )
     oidc = request.app.state.oidc
     target_url = settings.public_base_url + "/"
     try:
@@ -111,6 +121,6 @@ async def logout(request: Request, settings: SettingsDep) -> RedirectResponse:
     except Exception:
         logout_url = None
 
-    response = RedirectResponse(logout_url or target_url, status_code=302)
+    response = JSONResponse({"logout_url": logout_url or target_url})
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response
