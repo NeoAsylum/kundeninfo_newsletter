@@ -24,12 +24,15 @@
   <main class="page page-wide">
     <div class="page-head">
       <h1>Empfänger verwalten</h1>
-      <p>Aktive Empfänger durchsuchen, Abonnements pflegen und Empfänger deaktivieren.</p>
+      <p>Verteiler wählen, aktive Empfänger filtern und Abonnements direkt pflegen.</p>
     </div>
 
     <div class="search-row">
-      <input type="text" id="search" maxlength="200" placeholder="Nach E-Mail oder Name suchen …"
-             aria-label="Empfänger suchen">
+      <select id="topic-filter" aria-label="Verteiler wählen">
+        <option value="" disabled selected>Verteiler auswählen …</option>
+      </select>
+      <input type="text" id="search" maxlength="200" placeholder="Nach E-Mail filtern …"
+             aria-label="Nach E-Mail filtern" disabled>
       <span class="result-count" id="result-count" aria-live="polite"></span>
     </div>
 
@@ -39,14 +42,11 @@
           <thead>
             <tr>
               <th>E-Mail</th>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Abonnements</th>
-              <th><span class="visually-hidden">Aktionen</span></th>
+              <th class="col-subscribed">Abonniert</th>
             </tr>
           </thead>
           <tbody id="users-body">
-            <tr><td colspan="5" class="loading-state">Lade Empfänger …</td></tr>
+            <tr><td colspan="2" class="empty-state">Bitte zuerst einen Verteiler auswählen.</td></tr>
           </tbody>
         </table>
       </div>
@@ -54,6 +54,11 @@
         <button type="button" class="btn btn-secondary" id="load-more" hidden>Mehr laden</button>
       </div>
     </div>
+
+    <p class="detail-hint" id="mandatory-hint" hidden>
+      🔒 Pflicht-Verteiler gelten automatisch für alle aktiven Empfänger — die Abonnements
+      sind hier deshalb gesperrt.
+    </p>
   </main>
 
   <footer class="footer-links">

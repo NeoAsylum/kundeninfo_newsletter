@@ -459,6 +459,7 @@ textarea { resize: vertical; min-height: 180px; }
   margin-bottom: 16px;
 }
 
+.search-row select { flex: 0 0 320px; width: auto; }
 .search-row input { flex: 1; }
 
 .result-count { font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
@@ -478,26 +479,21 @@ textarea { resize: vertical; min-height: 180px; }
 }
 
 .users-table td {
-  padding: 10px 14px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--surface-muted);
   vertical-align: middle;
 }
 
-.users-table tr.inactive td { color: var(--text-muted); }
+.col-subscribed { width: 120px; text-align: center; }
 
-.badge-active { background: #ecf9f1; color: #1d7a46; }
-.badge-inactive { background: #f1f3f6; color: var(--text-muted); }
-
-.chip {
-  display: inline-block;
-  font-size: 0.75rem;
-  background: #e8effa;
-  color: var(--primary);
-  border-radius: 999px;
-  padding: 2px 9px;
-  margin: 1px 3px 1px 0;
-  white-space: nowrap;
+.subscribed-check {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-toggle);
+  cursor: pointer;
 }
+
+.subscribed-check:disabled { cursor: not-allowed; }
 
 .btn-secondary {
   background: var(--surface);
@@ -508,38 +504,6 @@ textarea { resize: vertical; min-height: 180px; }
 }
 
 .btn-secondary:hover { background: var(--surface-muted); }
-
-.detail-row td {
-  background: var(--surface-muted);
-  padding: 18px 20px;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 18px;
-}
-
-.detail-block h4 {
-  margin: 0 0 10px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
-.detail-topic {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 0;
-  font-size: 0.9rem;
-}
-
-.detail-topic input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent-toggle); }
-
-.detail-topic .mandatory-note { color: var(--text-muted); font-size: 0.82rem; }
 
 .detail-hint { font-size: 0.8rem; color: var(--text-muted); margin: 10px 0 0; }
 

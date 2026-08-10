@@ -46,8 +46,15 @@ async def test_suche_und_paging(client, app, auth_headers, make_user):
     assert search["total"] == 1
     assert search["items"][0]["email"] == "mia@example.corp"
 
+    # Suche ist bewusst E-Mail-only — Namen werden in der Maske nicht angezeigt
     by_name = (await client.get("/api/v1/admin/users?query=Beispiel", headers=headers)).json()
-    assert by_name["items"][0]["email"] == "max@example.corp"
+    assert by_name["total"] == 0
+
+    only_active = (
+        await client.get("/api/v1/admin/users?is_active=true", headers=headers)
+    ).json()
+    assert only_active["total"] == 3  # 'alt@example.corp' ist inaktiv
+    assert all(u["is_active"] for u in only_active["items"])
 
     page = (await client.get("/api/v1/admin/users?limit=2&offset=2", headers=headers)).json()
     assert page["total"] == 4

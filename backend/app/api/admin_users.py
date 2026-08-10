@@ -11,7 +11,7 @@ Bewusste Grenzen:
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,23 +61,21 @@ def _to_out(user: User, topic_ids: list[str]) -> AdminUserOut:
 async def list_users(
     session: SessionDep,
     query: str = Query(default="", max_length=200),
+    is_active: bool | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> AdminUserListOut:
-    """Browsen mit Suche (E-Mail/Name) und Paging; inaktive sind sichtbar,
-    damit Reaktivierung möglich ist."""
+    """Browsen mit E-Mail-Filter und Paging; is_active=true liefert nur aktive
+    Empfänger (die verteiler-zentrierte Maske zeigt ausschließlich diese)."""
     conditions = []
     if query.strip():
-        # LIKE-Wildcards aus der Nutzereingabe escapen: '_'/'%' sind in
+        # E-Mail-only-Suche (die Maske zeigt keine Namen — Treffer auf unsichtbare
+        # Felder wären irreführend). LIKE-Wildcards escapen: '_'/'%' sind in
         # E-Mail-Konventionen üblich und sollen wörtlich matchen (Review-Befund)
         escaped = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        needle = f"%{escaped}%"
-        conditions.append(
-            or_(
-                User.email.ilike(needle, escape="\\"),
-                User.display_name.ilike(needle, escape="\\"),
-            )
-        )
+        conditions.append(User.email.ilike(f"%{escaped}%", escape="\\"))
+    if is_active is not None:
+        conditions.append(User.is_active.is_(is_active))
 
     total = (
         await session.execute(select(func.count()).select_from(User).where(*conditions))
