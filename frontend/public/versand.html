@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Versand — Störungsinfo-Portal</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/abos.html"><span class="brand-mark">S</span> Störungsinfo-Portal</a>
+      <nav class="topbar-nav" aria-label="Hauptnavigation">
+        <a href="/abos.html" data-page="abos">Meine Abos</a>
+        <a href="/versand.html" data-page="versand" id="nav-versand" hidden>Versand</a>
+      </nav>
+      <span class="topbar-spacer"></span>
+      <span class="user-chip" id="user-chip" aria-live="polite">…</span>
+      <a class="logout-link" href="/auth/logout">Abmelden</a>
+    </div>
+  </header>
+
+  <main class="page page-wide">
+    <div class="page-head">
+      <h1>Neue Störungsmeldung verfassen</h1>
+      <p>Erstelle und versende eine gezielte Nachricht an die abonnierte Zielgruppe.</p>
+    </div>
+
+    <div class="send-grid">
+      <form class="card panel" id="send-form" novalidate>
+        <h2>Nachricht</h2>
+
+        <div class="field">
+          <label for="topic">Ziel-Verteiler wählen</label>
+          <select id="topic" required>
+            <option value="" disabled selected>Verteiler auswählen …</option>
+          </select>
+          <span class="recipient-hint" id="recipient-hint" hidden>
+            👥 Erreicht ca. <strong id="recipient-count">–</strong> aktive Empfänger
+          </span>
+        </div>
+
+        <div class="field">
+          <label>Status / Schweregrad</label>
+          <div class="severity-group" role="radiogroup" aria-label="Schweregrad">
+            <label class="severity-option" data-severity="stoerung">
+              <input type="radio" name="severity" value="stoerung" checked>
+              <span><span class="dot dot-stoerung"></span> Störung</span>
+            </label>
+            <label class="severity-option" data-severity="einschraenkung">
+              <input type="radio" name="severity" value="einschraenkung">
+              <span><span class="dot dot-einschraenkung"></span> Einschränkung</span>
+            </label>
+            <label class="severity-option" data-severity="entwarnung">
+              <input type="radio" name="severity" value="entwarnung">
+              <span><span class="dot dot-entwarnung"></span> Entwarnung</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="title">Titel <span class="hint">(max. 150 Zeichen)</span></label>
+          <input type="text" id="title" maxlength="150" required
+                 placeholder="z. B. Beeinträchtigung beim Login">
+          <div class="char-counter"><span id="title-count">0</span>/150</div>
+        </div>
+
+        <div class="field">
+          <label>E-Mail-Betreff <span class="hint">(wird automatisch erzeugt)</span></label>
+          <div class="subject-preview" id="subject-preview">[STÖRUNG] …</div>
+        </div>
+
+        <div class="field">
+          <label for="body">Nachrichteninhalt</label>
+          <textarea id="body" required
+placeholder="Sehr geehrte Damen und Herren,&#10;&#10;aktuell kommt es zu Einschränkungen beim Zugriff auf …&#10;&#10;Symptom: …&#10;Workaround: …"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="send-button" disabled>
+          🚀 Störungsmeldung versenden
+        </button>
+      </form>
+
+      <section class="card panel">
+        <h2>E-Mail-Live-Vorschau <span class="hint">— Outlook-Client-Ansicht</span></h2>
+        <iframe class="preview-frame" id="preview-frame" title="E-Mail-Vorschau"
+                sandbox="allow-same-origin"></iframe>
+        <p class="preview-note">Überprüfe die Angaben vor dem Versand sorgfältig.</p>
+      </section>
+    </div>
+
+    <section class="history">
+      <div class="card">
+        <table aria-label="Versandhistorie">
+          <thead>
+            <tr>
+              <th>Zeitpunkt</th>
+              <th>Betreff</th>
+              <th>Verteiler</th>
+              <th>Status</th>
+              <th class="num">Gesendet</th>
+              <th class="num">Fehler</th>
+            </tr>
+          </thead>
+          <tbody id="history-body">
+            <tr><td colspan="6" class="loading-state">Lade Versandhistorie …</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script>
+    "use strict";
+
+    const PREFIX = { stoerung: "STÖRUNG", einschraenkung: "EINSCHRÄNKUNG", entwarnung: "ENTWARNUNG" };
+    const topicNames = {};
+    let previewTimer = null;
+    let historyTimer = null;
+
+    const el = (id) => document.getElementById(id);
+    const form = {
+      topic: () => el("topic").value,
+      severity: () => document.querySelector('input[name="severity"]:checked').value,
+      title: () => el("title").value.trim(),
+      body: () => el("body").value,
+    };
+
+    function updateSubjectPreview() {
+      const topicName = topicNames[form.topic()] || "<Verteiler>";
+      const title = form.title() || "<Titel>";
+      el("subject-preview").textContent = `[${PREFIX[form.severity()]}] ${topicName}: ${title}`;
+    }
+
+    function updateSendButton() {
+      el("send-button").disabled = !(form.topic() && form.title() && form.body().trim());
+    }
+
+    function schedulePreview() {
+      updateSubjectPreview();
+      updateSendButton();
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(refreshPreview, 350);
+    }
+
+    async function refreshPreview() {
+      if (!form.topic() || !form.title() || !form.body().trim()) return;
+      try {
+        const data = await App.requestJson("/api/v1/admin/dispatches/preview", {
+          method: "POST",
+          body: JSON.stringify({
+            topic_id: form.topic(), severity: form.severity(),
+            title: form.title(), body: form.body(),
+          }),
+        });
+        el("preview-frame").srcdoc = data.html;
+      } catch (error) {
+        /* Vorschau-Fehler nicht als Toast spammen — Validierung meldet beim Senden */
+      }
+    }
+
+    async function refreshRecipientCount() {
+      const topicId = form.topic();
+      if (!topicId) return;
+      el("recipient-hint").hidden = false;
+      el("recipient-count").textContent = "–";
+      try {
+        const data = await App.requestJson(
+          "/api/v1/admin/topics/" + encodeURIComponent(topicId) + "/recipient-count");
+        el("recipient-count").textContent = data.count.toLocaleString("de-DE");
+      } catch (error) {
+        el("recipient-count").textContent = "?";
+      }
+    }
+
+    async function loadHistory() {
+      try {
+        const items = await App.requestJson("/api/v1/admin/dispatches?limit=20");
+        const tbody = el("history-body");
+        if (!items.length) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Noch keine Versände.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = items.map((d) => `
+          <tr>
+            <td>${App.formatDateTime(d.created_at)}</td>
+            <td><span class="sev-chip"><span class="dot dot-${d.severity}"></span>${App.escapeHtml(d.subject)}</span></td>
+            <td>${App.escapeHtml(d.topic_name)}</td>
+            <td><span class="status-badge status-${d.status}">${statusLabel(d)}</span></td>
+            <td class="num">${d.sent_count}/${d.recipient_count}</td>
+            <td class="num">${d.failed_count}</td>
+          </tr>`).join("");
+        const anyOpen = items.some((d) => d.status === "pending" || d.status === "sending");
+        clearTimeout(historyTimer);
+        if (anyOpen) historyTimer = setTimeout(loadHistory, 4000);
+      } catch (error) {
+        /* Historie-Polling still scheitern lassen */
+      }
+    }
+
+    function statusLabel(d) {
+      return {
+        pending: "Wartet", sending: "Versand läuft …", completed: "Zugestellt",
+        completed_with_errors: "Mit Fehlern", failed: "Fehlgeschlagen",
+      }[d.status] || d.status;
+    }
+
+    async function onSubmit(event) {
+      event.preventDefault();
+      const count = el("recipient-count").textContent;
+      const topicName = topicNames[form.topic()] || form.topic();
+      if (!window.confirm(
+        `Störungsmeldung an "${topicName}" (ca. ${count} Empfänger) jetzt versenden?`)) return;
+      el("send-button").disabled = true;
+      try {
+        await App.requestJson("/api/v1/admin/dispatches", {
+          method: "POST",
+          body: JSON.stringify({
+            topic_id: form.topic(), severity: form.severity(),
+            title: form.title(), body: form.body(),
+          }),
+        });
+        App.toast("Versand angelegt — läuft im Hintergrund");
+        el("title").value = "";
+        el("body").value = "";
+        el("title-count").textContent = "0";
+        el("preview-frame").srcdoc = "";
+        updateSubjectPreview();
+        loadHistory();
+      } catch (error) {
+        App.toast(error.message, true);
+      } finally {
+        updateSendButton();
+      }
+    }
+
+    async function init() {
+      const me = await App.initTopbar("versand");
+      if (!me.roles.includes("admin")) {
+        document.querySelector(".send-grid").innerHTML =
+          '<div class="card empty-state">Für die Versand-Maske fehlt dir die Berechtigung ' +
+          "(Rolle „stoerungsinfo-admin“).</div>";
+        el("history-body").innerHTML =
+          '<tr><td colspan="6" class="empty-state">Keine Berechtigung.</td></tr>';
+        return;
+      }
+      const topics = await App.requestJson("/api/v1/topics");
+      const select = el("topic");
+      topics.forEach((topic) => {
+        topicNames[topic.id] = topic.name;
+        const option = document.createElement("option");
+        option.value = topic.id;
+        option.textContent = topic.name + (topic.is_mandatory ? " (Pflicht — alle Mitarbeiter)" : "");
+        select.appendChild(option);
+      });
+
+      select.addEventListener("change", () => { refreshRecipientCount(); schedulePreview(); });
+      document.querySelectorAll('input[name="severity"]').forEach((radio) =>
+        radio.addEventListener("change", schedulePreview));
+      el("title").addEventListener("input", () => {
+        const length = el("title").value.length;
+        el("title-count").textContent = String(length);
+        el("title-count").parentElement.classList.toggle("limit", length >= 150);
+        schedulePreview();
+      });
+      el("body").addEventListener("input", schedulePreview);
+      el("send-form").addEventListener("submit", onSubmit);
+
+      updateSubjectPreview();
+      loadHistory();
+    }
+
+    init().catch((error) => App.toast(error.message, true));
+  </script>
+</body>
+</html>

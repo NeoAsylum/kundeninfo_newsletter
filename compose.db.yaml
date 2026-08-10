@@ -1,0 +1,31 @@
+# DB-Overlay: lokaler MariaDB-Container mit persistentem Volume.
+# DEV: immer. PROD: bis zum Cutover auf die externe Konzern-DB (Plan 3.1/9.4) —
+# danach entfällt dieses Overlay (make prod statt make prod-localdb).
+services:
+  mariadb:
+    # mariadb:11, per Digest gepinnt (Plan 9.7)
+    image: mariadb:11@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD fehlt in .env}
+      MARIADB_DATABASE: ${DB_NAME:-newsletter}
+      MARIADB_USER: ${DB_USER:-app}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks: [appnet]
+    restart: unless-stopped
+    # Bewusst KEIN Host-Port-Mapping: DB ist nur im Compose-Netz erreichbar.
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  api:
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+volumes:
+  db_data:

@@ -1,0 +1,79 @@
+{
+  "realm": "dev",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginTheme": "keycloak",
+  "roles": {
+    "realm": [
+      {
+        "name": "stoerungsinfo-admin",
+        "description": "Zugriff auf die Versand-Maske des Störungsinfo-Portals"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "newsletter-dev",
+      "name": "Störungsinfo-Portal (DEV)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "dev-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8080/auth/callback"],
+      "webOrigins": ["http://localhost:8080"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8080/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm-roles-in-id-token",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "mitarbeiter1",
+      "enabled": true,
+      "email": "mitarbeiter1@example.corp",
+      "emailVerified": true,
+      "firstName": "Mia",
+      "lastName": "Muster",
+      "credentials": [{ "type": "password", "value": "test", "temporary": false }]
+    },
+    {
+      "username": "mitarbeiter2",
+      "enabled": true,
+      "email": "mitarbeiter2@example.corp",
+      "emailVerified": true,
+      "firstName": "Max",
+      "lastName": "Beispiel",
+      "credentials": [{ "type": "password", "value": "test", "temporary": false }]
+    },
+    {
+      "username": "admin1",
+      "enabled": true,
+      "email": "admin1@example.corp",
+      "emailVerified": true,
+      "firstName": "Petra",
+      "lastName": "Problemmanagement",
+      "credentials": [{ "type": "password", "value": "test", "temporary": false }],
+      "realmRoles": ["stoerungsinfo-admin"]
+    }
+  ]
+}

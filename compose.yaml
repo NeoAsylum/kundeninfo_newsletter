@@ -1,0 +1,41 @@
+# Basis-Stack: identisch in DEV und PROD (Plan 3.2).
+# Aufruf immer über Makefile / make.ps1 — nie einzeln.
+name: stoerungsinfo
+
+services:
+  nginx:
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile
+    image: stoerungsinfo-nginx:${IMAGE_TAG:-local}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [appnet]
+    healthcheck:
+      # Lokaler Stub, bewusst NICHT ans Backend gekoppelt (Plan 3.2)
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: backend
+      args:
+        APP_VERSION: ${IMAGE_TAG:-local}
+    image: stoerungsinfo-api:${IMAGE_TAG:-local}
+    env_file: .env
+    networks: [appnet]
+    healthcheck:
+      # Nur Liveness — fachliche Degradation (Relay down) macht den Container
+      # nicht unhealthy; /readyz gehört dem externen Monitoring (Plan 3.3).
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+networks:
+  appnet:
+    driver: bridge

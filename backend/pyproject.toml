@@ -1,0 +1,31 @@
+# Nur Tooling-Konfiguration — Abhängigkeiten leben in requirements*.txt (eine Wahrheit).
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: Tests gegen den echten Compose-Stack (make test-integration)",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# Handgeschriebene DDL-Migrationen: Alembic-Signaturen sind für **kwargs zu streng
+module = "app.db.alembic.*"
+ignore_errors = true
+
+[tool.coverage.run]
+source = ["app/domain", "app/mail"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

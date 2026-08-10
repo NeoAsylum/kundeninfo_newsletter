@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ meta.header }}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f0f2f5;">
+  {# Tabellenlayout mit Inline-Styles: Desktop-Outlook rendert mit der Word-Engine (Plan 6.5) #}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f2f5;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:100%; background-color:#ffffff; border:1px solid #d9dde3;">
+          <tr>
+            <td style="background-color:{{ meta.color }}; padding:12px 20px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff;">
+                    &#9679; {{ meta.header }}
+                  </td>
+                  <td align="right" style="font-family:Arial, Helvetica, sans-serif; font-size:11px; font-weight:bold; color:{{ meta.color }};">
+                    <span style="background-color:#ffffff; padding:3px 8px;">{{ meta.badge }}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px; font-family:Arial, Helvetica, sans-serif; font-size:13px; color:#333333; line-height:1.55;">
+              <p style="margin:0 0 4px 0; color:#666666;"><strong>Verteiler:</strong> {{ topic_name }}</p>
+              <p style="margin:0 0 16px 0; font-size:16px; font-weight:bold; color:#1a1a1a;">{{ title }}</p>
+              <p style="margin:0;">{{ body | nl2br }}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 20px; background-color:#f7f8fa; border-top:1px solid #e3e6ea; font-family:Arial, Helvetica, sans-serif; font-size:11px; color:#8a919b; line-height:1.5;">
+              Diese Benachrichtigung wurde automatisch erzeugt.<br>
+              Du erhältst diese E-Mail, weil du den Verteiler <strong>{{ topic_name }}</strong> abonniert hast.
+              <a href="{{ settings_url }}" style="color:#2563b0;">Einstellungen verwalten</a> &middot;
+              <a href="{{ privacy_url }}" style="color:#2563b0;">Datenschutzhinweis</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

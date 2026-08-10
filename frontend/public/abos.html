@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abos — Störungsinfo-Portal</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/abos.html"><span class="brand-mark">S</span> Störungsinfo-Portal</a>
+      <nav class="topbar-nav" aria-label="Hauptnavigation">
+        <a href="/abos.html" data-page="abos">Meine Abos</a>
+        <a href="/versand.html" data-page="versand" id="nav-versand" hidden>Versand</a>
+      </nav>
+      <span class="topbar-spacer"></span>
+      <span class="user-chip" id="user-chip" aria-live="polite">…</span>
+      <a class="logout-link" href="/auth/logout">Abmelden</a>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="page-head">
+      <h1>E-Mail-Verteiler &amp; Benachrichtigungen</h1>
+      <p>Verwalte hier deine Abonnements für IT-Störungsmeldungen.</p>
+    </div>
+
+    <div class="topic-list" id="topic-list" aria-live="polite">
+      <div class="card loading-state">Lade deine Abonnements …</div>
+    </div>
+
+    <p class="autosave-note">Änderungen werden automatisch übernommen</p>
+  </main>
+
+  <footer class="footer-links">
+    <a href="/datenschutz.html">Datenschutzhinweis</a>
+  </footer>
+
+  <script src="/app.js"></script>
+  <script>
+    "use strict";
+
+    const LOCK_ICON =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+      '<rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/>' +
+      '<path d="M8 10V7a4 4 0 1 1 8 0v3" stroke="currentColor" stroke-width="2"/></svg>';
+
+    function renderTopic(topic) {
+      const card = document.createElement("div");
+      card.className = "card topic-card" + (topic.is_mandatory ? " mandatory" : "");
+
+      const info = document.createElement("div");
+      info.className = "topic-info";
+      const badge = topic.is_mandatory ? ' <span class="badge badge-mandatory">Pflicht</span>' : "";
+      info.innerHTML =
+        '<div class="topic-title"><span>' + App.escapeHtml(topic.name) + "</span>" + badge + "</div>" +
+        '<div class="topic-desc">' + App.escapeHtml(topic.description || "") + "</div>";
+      card.appendChild(info);
+
+      if (topic.is_mandatory) {
+        const locked = document.createElement("span");
+        locked.className = "locked-state";
+        locked.innerHTML = LOCK_ICON + " Aktiv";
+        locked.title = "Pflicht-Verteiler — nicht abwählbar";
+        card.appendChild(locked);
+      } else {
+        const label = document.createElement("label");
+        label.className = "toggle";
+        const srText = "Abonnement " + topic.name;
+        label.innerHTML =
+          '<input type="checkbox" aria-label="' + App.escapeHtml(srText) + '"' +
+          (topic.subscribed ? " checked" : "") + ">" +
+          '<span class="toggle-track"></span>';
+        const input = label.querySelector("input");
+        input.addEventListener("change", () => onToggle(topic, input));
+        card.appendChild(label);
+      }
+      return card;
+    }
+
+    async function onToggle(topic, input) {
+      const subscribe = input.checked;
+      input.disabled = true;
+      try {
+        await App.requestJson("/api/v1/me/subscriptions/" + encodeURIComponent(topic.id), {
+          method: subscribe ? "PUT" : "DELETE",
+        });
+        App.toast(subscribe ? "Abonniert: " + topic.name : "Abbestellt: " + topic.name);
+      } catch (error) {
+        input.checked = !subscribe; // Rollback bei API-Fehler
+        App.toast(error.message, true);
+      } finally {
+        input.disabled = false;
+      }
+    }
+
+    async function init() {
+      try {
+        await App.initTopbar("abos");
+        const topics = await App.requestJson("/api/v1/topics");
+        const list = document.getElementById("topic-list");
+        list.innerHTML = "";
+        if (!topics.length) {
+          list.innerHTML = '<div class="card empty-state">Derzeit sind keine Verteiler verfügbar.</div>';
+          return;
+        }
+        topics.forEach((topic) => list.appendChild(renderTopic(topic)));
+      } catch (error) {
+        App.toast(error.message, true);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
