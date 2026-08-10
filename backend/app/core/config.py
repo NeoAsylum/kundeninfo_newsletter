@@ -35,9 +35,15 @@ class Settings(BaseSettings):
     smtp_host: str
     smtp_port: int = 25
     smtp_security: Literal["none", "starttls", "ssl"] = "none"
-    smtp_auth_mode: Literal["none", "login"] = "none"
+    smtp_auth_mode: Literal["none", "login", "oauth2"] = "none"
     smtp_user: str = ""
     smtp_password: str = ""
+    # Nur bei smtp_auth_mode=oauth2 (Microsoft Modern Auth, ADR-0012):
+    # 'consumers' = privates Microsoft-Konto, sonst die Tenant-ID des Konzerns.
+    smtp_oauth_tenant: str = "consumers"
+    smtp_oauth_client_id: str = ""
+    smtp_oauth_refresh_token: str = ""
+    smtp_oauth_scope: str = "https://outlook.office.com/SMTP.Send offline_access"
     mail_from: str
     mail_from_name: str = "Zentrales Problemmanagement"
     # Testbetrieb: leitet ALLE ausgehenden Mails an diese Adresse um (leer = aus).
@@ -69,10 +75,21 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _smtp_login_needs_credentials(self) -> "Settings":
+    def _smtp_auth_needs_credentials(self) -> "Settings":
         if self.smtp_auth_mode == "login" and not (self.smtp_user and self.smtp_password):
             raise ValueError("SMTP_AUTH_MODE=login erfordert SMTP_USER und SMTP_PASSWORD")
+        if self.smtp_auth_mode == "oauth2" and not (
+            self.smtp_user and self.smtp_oauth_client_id and self.smtp_oauth_refresh_token
+        ):
+            raise ValueError(
+                "SMTP_AUTH_MODE=oauth2 erfordert SMTP_USER, SMTP_OAUTH_CLIENT_ID und "
+                "SMTP_OAUTH_REFRESH_TOKEN (Token holen: python scripts/get_oauth_token.py)"
+            )
         return self
+
+    @property
+    def oauth_token_url(self) -> str:
+        return f"https://login.microsoftonline.com/{self.smtp_oauth_tenant}/oauth2/v2.0/token"
 
     @property
     def is_dev(self) -> bool:

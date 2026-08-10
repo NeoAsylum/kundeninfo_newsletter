@@ -116,7 +116,55 @@ Praktikable Wege für einen echten Testversand:
 | **Transaktions-Mail-Dienst** (Brevo, Mailjet, SMTP2GO …) | ~15 min | SMTP mit API-Key/Passwort, Free Tier reicht; die eigene Absenderadresse wird per Klick-Mail verifiziert — damit ist Versand *von* der eigenen Adresse möglich |
 | **Gmail** mit App-Passwort | ~10 min | funktioniert weiterhin, Absender ist dann die Gmail-Adresse |
 | **Konzern-Exchange-Relay** | Antrag | der eigentliche Zielweg — üblicherweise IP-Allowlist ohne Auth (`SMTP_AUTH_MODE=none`), klärt Frage B2 |
-| **OAuth2 für Outlook/M365** | 1–2 PT | Azure-App-Registrierung + Token-Handling; nur bauen, wenn der Konzern-Relay es fordert |
+| **OAuth2 (Modern Auth)** | ~20 min Einrichtung | im Code umgesetzt (`SMTP_AUTH_MODE=oauth2`), Anleitung unten |
+
+### Outlook.com / Exchange Online per OAuth2 (`SMTP_AUTH_MODE=oauth2`)
+
+Der einzige Weg, aus einem Microsoft-Postfach zu senden. Einmalige Einrichtung:
+
+**1. App im Azure-Portal registrieren** ([portal.azure.com](https://portal.azure.com),
+Anmeldung mit dem Microsoft-Konto genügt — kein Abo nötig):
+
+* *Microsoft Entra ID* → *App-Registrierungen* → *Neue Registrierung*
+* Name z. B. `Stoerungsinfo SMTP`, Kontotyp: **„Konten in einem beliebigen
+  Organisationsverzeichnis und persönliche Microsoft-Konten“**, Redirect-URI leer lassen
+* Nach dem Anlegen die **Anwendungs-ID (Client)** kopieren
+* *Authentifizierung* → **„Öffentliche Clientflows zulassen“ = Ja** (zwingend für den
+  Device-Code-Flow, ohne das schlägt Schritt 2 fehl)
+* *API-Berechtigungen* → *Hinzufügen* → *APIs, die meine Organisation verwendet* →
+  `Office 365 Exchange Online` → *Delegierte Berechtigungen* → **`SMTP.Send`**
+  (bei privaten Konten optional — der v2.0-Endpunkt fragt den Scope beim Login
+  dynamisch ab und du stimmst selbst zu)
+
+**2. Refresh-Token holen** (einmalig, im Repo-Verzeichnis):
+
+```bash
+python backend/scripts/get_oauth_token.py --client-id <ANWENDUNGS-ID>
+```
+
+Das Skript zeigt eine URL und einen Code; nach der Bestätigung im Browser gibt es die
+fertigen `.env`-Zeilen aus.
+
+**3. In die `.env` übernehmen** und neu starten:
+
+```dotenv
+SMTP_HOST=smtp-mail.outlook.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_AUTH_MODE=oauth2
+SMTP_USER=<konto@outlook.de>          # Postfach, aus dem gesendet wird
+SMTP_OAUTH_TENANT=consumers           # privates Konto; sonst Tenant-ID
+SMTP_OAUTH_CLIENT_ID=<ANWENDUNGS-ID>
+SMTP_OAUTH_REFRESH_TOKEN=<aus Schritt 2>
+MAIL_FROM=<konto@outlook.de>          # muss zu SMTP_USER passen
+```
+
+**Betrieb:** Access-Tokens holt das Backend selbst und cacht sie bis kurz vor Ablauf
+(~1 h). Der Refresh-Token ist ein **Geheimnis** (Passwort-Äquivalent, nur in der
+`.env` mit `chmod 600`) und bleibt gültig, solange er regelmäßig genutzt wird — nach
+längerer Pause (Consumer-Konten: ~90 Tage) Schritt 2 wiederholen. Typische Fehler
+stehen im Log: `AADSTS70008` = Token abgelaufen, `AADSTS65001` = Zustimmung fehlt,
+`535` mit gültigem Token = `SMTP.Send`-Berechtigung oder falscher Scope.
 
 **Vorsicht Bounces:** Die Demo-Empfänger (`*@example.corp`) existieren nicht. Beim
 Versand über einen echten Server kommen für jeden davon Unzustellbarkeitsberichte

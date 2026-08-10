@@ -50,9 +50,7 @@ async def test_suche_und_paging(client, app, auth_headers, make_user):
     by_name = (await client.get("/api/v1/admin/users?query=Beispiel", headers=headers)).json()
     assert by_name["total"] == 0
 
-    only_active = (
-        await client.get("/api/v1/admin/users?is_active=true", headers=headers)
-    ).json()
+    only_active = (await client.get("/api/v1/admin/users?is_active=true", headers=headers)).json()
     assert only_active["total"] == 3  # 'alt@example.corp' ist inaktiv
     assert all(u["is_active"] for u in only_active["items"])
 

@@ -6,10 +6,11 @@
 
 ## Entscheidung
 
-Schmale Mailer-Schnittstelle (`app/mail/mailer.py`, eine Klasse) mit Konfigurations-Schaltern: `SMTP_SECURITY = none|starttls|ssl`, `SMTP_AUTH_MODE = none|login`. Zwei **benannte, bewusst nicht gebaute** Erweiterungspunkte hinter derselben Schnittstelle:
+Schmale Mailer-Schnittstelle (`app/mail/mailer.py`, eine Klasse) mit Konfigurations-Schaltern: `SMTP_SECURITY = none|starttls|ssl`, `SMTP_AUTH_MODE = none|login|oauth2`.
 
-* `kerberos` (GSSAPI + Keytab-Mount) — nur bauen, wenn das Exchange-Team es bestätigt.
-* `oauth2` (XOAUTH2/Modern Auth) — relevant für Exchange Online: Microsoft hat Basic Auth für SMTP AUTH abgeschaltet. Am 2026-08-10 gegen `smtp-mail.outlook.com` verifiziert: Benutzername/Passwort **und App-Passwörter** werden mit `535 5.7.139 basic authentication is disabled` abgelehnt. Ein Testversand über ein privates Outlook-Konto ist damit ohne OAuth2 nicht möglich (RUNBOOK 3b nennt Alternativen).
+**`oauth2` ist gebaut** (nachträglich ergänzt, 2026-08-10): Microsoft hat Basic Auth für SMTP AUTH abgeschaltet — am selben Tag gegen `smtp-mail.outlook.com` verifiziert, Benutzername/Passwort **und App-Passwörter** werden mit `535 5.7.139 basic authentication is disabled` abgelehnt. Ohne OAuth2 ist damit kein Versand aus einem Microsoft-Postfach möglich, was den geforderten Testversand aus dem Postfach des Problemmanagements blockiert hätte. Umsetzung: SASL-XOAUTH2, Access-Token wird aus einem konfigurierten Refresh-Token geholt und im Prozess gecacht; die Token-Beschaffung läuft einmalig über `scripts/get_oauth_token.py` (Device-Code-Flow, kein Client-Secret, kein Redirect-URI).
+
+`kerberos` (GSSAPI + Keytab-Mount) bleibt ein **benannter, nicht gebauter** Erweiterungspunkt — nur bauen, wenn das Exchange-Team es bestätigt.
 
 ## Konsequenzen
 
