@@ -307,6 +307,37 @@ ssh root@<host> 'cd /opt/stoerungsinfo && docker compose -f compose.yaml \
     -f compose.db.yaml -f compose.public.yaml ps'
 ```
 
+### Demo-Zugänge (Zugangsdaten zum Weitergeben)
+
+```bash
+# anlegen (Admin-Rechte, festes Passwort, Name gegen die VERIFY_PROFILE-Sperre)
+bash deploy/vm/create-user.sh <mail> --admin --password "<pw>" --name "Vor Nach"
+
+# nach der Demo sperren — Abos und Historie bleiben erhalten
+bash deploy/vm/create-user.sh <mail> --disable
+bash deploy/vm/create-user.sh <mail> --enable    # wieder freigeben
+```
+
+**Was ein Admin-Zugang kann** — vor der Weitergabe abwägen:
+
+* **Alle Empfängeradressen einsehen** (Empfänger-Maske). Wer den Zugang bekommt, sieht
+  jede registrierte Adresse — bei einem öffentlichen Portal mit Selbstregistrierung
+  können das fremde, personenbezogene Adressen sein.
+* **Echte Mails an alle Abonnenten verschicken**, über das konfigurierte Postfach und auf
+  dessen Tageskontingent. Ein unbedachter Testversand an den Pflicht-Verteiler erreicht
+  jeden registrierten Empfänger.
+* **Empfänger deaktivieren** (schließt sie vom Versand aus).
+
+**Wirksamste Eingrenzung für Demophasen:** `MAIL_REDIRECT_TO=<eigene@adresse>` in der
+`.env` setzen und `deploy.sh` erneut laufen lassen. Dann landen alle Mails ausschließlich
+dort, die Historie zeigt weiterhin die gedachten Empfänger, und ein Demo-Nutzer kann
+niemanden Fremdes anmailen. Für die Demo bleibt alles sichtbar — nur die Zustellung ist
+umgeleitet.
+
+Weitere Möglichkeiten: Demo-Empfänger statt echter Privatadressen anlegen (dann zeigt die
+Empfänger-Maske keine realen Adressen), Zugang nach der Demo sperren, Passwort danach
+ändern.
+
 ### Paketfilter (Firewall)
 
 ```bash

@@ -13,16 +13,21 @@ REPO_DIR="${REPO_DIR:-/opt/stoerungsinfo}"
 cd "$REPO_DIR"
 set -a; . ./.env; set +a
 
-EMAIL="${1:?Aufruf: create-user.sh <email> [--admin] [--password <pw>] [--name \"Vor Nach\"]}"
+EMAIL="${1:?Aufruf: create-user.sh <email> [--admin] [--password <pw>] [--name \"Vor Nach\"] [--disable|--enable]}"
 shift
 WANT_ADMIN=false
 PASSWORD=""
 FULL_NAME=""
+SET_ENABLED=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --admin) WANT_ADMIN=true ;;
         --password) PASSWORD="${2:?--password braucht einen Wert}"; shift ;;
         --name) FULL_NAME="${2:?--name braucht einen Wert}"; shift ;;
+        # Anmeldung sperren/freigeben, ohne den Zugang zu löschen — damit bleiben
+        # Abos und Versandhistorie erhalten (z. B. nach einer Demo).
+        --disable) SET_ENABLED=false ;;
+        --enable) SET_ENABLED=true ;;
         *) echo "Unbekannte Option: $1" >&2; exit 1 ;;
     esac
     shift
@@ -34,6 +39,7 @@ docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml exec -T
     -e NEW_EMAIL="$EMAIL" \
     -e NEW_PASSWORD="$PASSWORD" \
     -e NEW_FULL_NAME="$FULL_NAME" \
+    -e SET_ENABLED="$SET_ENABLED" \
     -e WANT_ADMIN="$WANT_ADMIN" \
     -e ADMIN_ROLE_VALUE="$ADMIN_ROLE_VALUE" \
     -e PUBLIC_BASE_URL="$PUBLIC_BASE_URL" \
@@ -79,6 +85,24 @@ with httpx.Client(timeout=30) as client:
         headers=headers,
         params={"email": email, "exact": "true"},
     ).json()
+
+    # Nur sperren/freigeben, sonst nichts anfassen
+    set_enabled = os.environ.get("SET_ENABLED", "")
+    if set_enabled in ("true", "false"):
+        if not existing:
+            print(f"FEHLER: {email} existiert nicht", file=sys.stderr)
+            sys.exit(1)
+        client.put(
+            f"{KC}/admin/realms/{REALM}/users/{existing[0]['id']}",
+            headers=headers,
+            json={"enabled": set_enabled == "true"},
+        )
+        state = "freigegeben" if set_enabled == "true" else "gesperrt"
+        print(f"Anmeldung für {email} {state}.")
+        if set_enabled == "false":
+            print("Hinweis: Abos und Versandhistorie bleiben erhalten; der Datensatz")
+            print("bleibt Empfänger, bis er in der Empfänger-Maske deaktiviert wird.")
+        sys.exit(0)
     if existing:
         user_id = existing[0]["id"]
         username = existing[0]["username"]
