@@ -21,7 +21,7 @@ Dieses Register dokumentiert alle offenen organisatorischen, technischen und reg
 | # | Frage | Adressat | Status |
 |---|---|---|---|
 | B1 | IdP konkret: Entra ID / Keycloak / ADFS? Prozess & Ansprechpartner für App-Registrierung. | IAM-Team | Offen |
-| B2 | Relay Hostname, Port (25/587), Auth-Verfahren & IP-Allowlist-Verfahren. | Exchange-Team | Offen |
+| B2 | Relay: Hostname, Port (25/587), IP-Allowlist-Verfahren — und vor allem das **Auth-Verfahren**: interner Receive-Connector ohne Auth (bevorzugt), Basic Auth, oder erzwingt Exchange Online **Modern Auth/OAuth2**? Hintergrund: Microsoft hat Basic Auth für SMTP AUTH abgeschaltet (am 2026-08-10 an einem Consumer-Konto verifiziert: `535 5.7.139`); OAuth2 in der App wären ~1–2 PT Nacharbeit (ADR-0012). Zusätzlich: Rate-/Empfänger-/Größenlimits. | Exchange-Team | Offen |
 | B3 | Externe DB: MySQL oder MariaDB, Version, TLS-Pflicht, User-Rechte & Cutover-Termin. | DB-Betrieb | Offen |
 | B4 | Proxy-Zwang für ausgehendes HTTPS & Zertifikatsprozess der Konzern-PKI. | Netzwerk / Security | Offen |
 | B5 | Betriebsrat (§87 BetrVG Mitbestimmung, Pflicht-Abo Zulässigkeit, Audit-Log Schalter). | Betriebsrat / HR | Offen |

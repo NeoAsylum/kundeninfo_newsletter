@@ -91,17 +91,32 @@ Konto passen (Microsoft antwortet sonst mit `5.7.x`).
 ### Wirklich zustellen (echter SMTP-Server)
 
 ```dotenv
-SMTP_HOST=smtp-mail.outlook.com
+SMTP_HOST=<smtp-host>
 SMTP_PORT=587
 SMTP_SECURITY=starttls
 SMTP_AUTH_MODE=login
-SMTP_USER=<konto@outlook.de>
-SMTP_PASSWORD=<App-Passwort, NICHT das Kontopasswort>
-MAIL_FROM=<konto@outlook.de>        # muss zum SMTP_USER passen
+SMTP_USER=<konto>
+SMTP_PASSWORD=<passwort/app-passwort/api-key>
+MAIL_FROM=<absender>                # muss zum authentifizierten Konto passen
 ```
 
-App-Passwort: `account.microsoft.com` → Sicherheit → App-Passwörter (erfordert
-Zwei-Faktor-Authentifizierung). Limit ca. 300 Mails/Tag.
+> **Outlook.com / Microsoft 365 funktioniert so NICHT.** Am 2026-08-10 verifiziert:
+> `smtp-mail.outlook.com:587` mit App-Passwort antwortet
+> `535 5.7.139 Authentication unsuccessful, basic authentication is disabled`.
+> Microsoft hat Basic Auth für SMTP AUTH abgeschaltet — App-Passwörter beruhen darauf
+> und funktionieren deshalb ebenfalls nicht mehr; für Consumer- und M365-Postfächer ist
+> **OAuth2 (Modern Auth, XOAUTH2)** Pflicht. Das ist im MVP bewusst nicht implementiert
+> (siehe ADR-0012, Erweiterungspunkt).
+
+Praktikable Wege für einen echten Testversand:
+
+| Weg | Aufwand | Anmerkung |
+|---|---|---|
+| **Mailpit** (Standard) | keiner | Zustellung nicht nötig, um Inhalt/Empfängerauflösung zu prüfen — Web-UI zeigt jede Mail |
+| **Transaktions-Mail-Dienst** (Brevo, Mailjet, SMTP2GO …) | ~15 min | SMTP mit API-Key/Passwort, Free Tier reicht; die eigene Absenderadresse wird per Klick-Mail verifiziert — damit ist Versand *von* der eigenen Adresse möglich |
+| **Gmail** mit App-Passwort | ~10 min | funktioniert weiterhin, Absender ist dann die Gmail-Adresse |
+| **Konzern-Exchange-Relay** | Antrag | der eigentliche Zielweg — üblicherweise IP-Allowlist ohne Auth (`SMTP_AUTH_MODE=none`), klärt Frage B2 |
+| **OAuth2 für Outlook/M365** | 1–2 PT | Azure-App-Registrierung + Token-Handling; nur bauen, wenn der Konzern-Relay es fordert |
 
 **Vorsicht Bounces:** Die Demo-Empfänger (`*@example.corp`) existieren nicht. Beim
 Versand über einen echten Server kommen für jeden davon Unzustellbarkeitsberichte
