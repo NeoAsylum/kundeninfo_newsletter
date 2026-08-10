@@ -16,6 +16,20 @@ location /auth/ {
     proxy_set_header X-Request-ID $request_id;
 }
 
+# OpenAPI-Dokumentation: Das Backend liefert sie NUR bei APP_ENV=dev
+# (docs_url=None in prod) — hier durchreichen ist daher unbedenklich.
+location = /docs {
+    proxy_pass http://api:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Request-ID $request_id;
+}
+
+location = /openapi.json {
+    proxy_pass http://api:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Request-ID $request_id;
+}
+
 # Health-Endpunkte von außen erreichbar (Smoke-Test, Konzern-Monitoring — Plan 7.1)
 location = /healthz {
     proxy_pass http://api:8000;

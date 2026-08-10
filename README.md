@@ -36,16 +36,33 @@ Sobald der Command erfolgreich beendet ist, laufen alle 5 Docker-Container im En
 | **Versand-Maske (Admin UI)** | [http://localhost:8080/versand.html](http://localhost:8080/versand.html) | Nur für Benutzer mit Rolle `admin` |
 | **Empfänger-Verwaltung (Admin UI)** | [http://localhost:8080/empfaenger.html](http://localhost:8080/empfaenger.html) | Nur für Benutzer mit Rolle `admin` |
 | **Datenschutz-Hinweis** | [http://localhost:8080/datenschutz.html](http://localhost:8080/datenschutz.html) | Statische Infoseite (Art. 13 DSGVO) |
-| **REST-API Dokumentation** | [http://localhost:8080/docs](http://localhost:8080/docs) | Swagger UI (OpenAPI) |
+| **REST-API Dokumentation** | [http://localhost:8080/docs](http://localhost:8080/docs) | Swagger UI (OpenAPI) — nur bei `APP_ENV=dev` |
 | **Mailpit Web-UI (Mock-Outlook)** | [http://localhost:8025](http://localhost:8025) | Alle versendeten Mails landen hier |
 | **Keycloak Admin Console** | [http://localhost:8081](http://localhost:8081) | Admin: `admin` / `admin` |
 
-### DEV-Testuser (Keycloak Realm `dev`)
+### Anmelden am Portal
 
-Das Passwort für alle DEV-Testuser lautet **`test`**:
+**Selbstregistrierung:** Auf der Anmeldeseite führt ein „Registrieren“-Link direkt zum
+Keycloak-Formular (E-Mail dient als Benutzername). Neue Nutzer sind nach der Registrierung
+angemeldet, werden automatisch als Empfänger angelegt und erhalten Pflicht-Verteiler
+sofort — Rolle `employee`, keine Adminrechte ([ADR-0021](docs/adr/0021-selbstregistrierung-im-idp.md)).
+Ist Realm-SMTP konfiguriert, verlangt Keycloak eine Bestätigungsmail; Ein-/Ausschalten und
+SMTP setzen: `python ops/configure_dev_realm.py [--verify-email] [--no-registration]`.
 
-* **Mitarbeiter (Standard)**: Username `mitarbeiter1` (E-Mail `mitarbeiter1@example.corp`) · Passwort: **`test`**
-* **Problemmanager (Admin)**: Username `admin1` (E-Mail `admin1@example.corp`) · Passwort: **`test`**
+**Vorhandene DEV-Testuser** (Realm `dev`, Passwort jeweils **`test`**):
+
+* **Mitarbeiter:** `mitarbeiter1`, `mitarbeiter2` (`*@example.corp`)
+* **Problemmanager (Admin):** `admin1` (`admin1@example.corp`)
+
+Diese Adressen existieren nicht — beim Versand über einen echten SMTP-Server erzeugen sie
+Unzustellbarkeitsberichte (siehe [RUNBOOK 3b](docs/RUNBOOK.md)).
+
+**Eigenen Account anlegen** (z. B. mit echter Adresse und Adminrechten), reproduzierbar nach
+jedem Container-Neuaufbau:
+
+```bash
+python ops/create_dev_user.py --email <adresse> --admin
+```
 
 ---
 

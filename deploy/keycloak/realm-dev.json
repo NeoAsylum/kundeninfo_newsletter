@@ -2,8 +2,15 @@
   "realm": "dev",
   "enabled": true,
   "sslRequired": "none",
-  "registrationAllowed": false,
   "loginTheme": "keycloak",
+  "//": "Selbstregistrierung: ersetzt in DEV das, was in PROD der Konzern-IdP tut.",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "//verifyEmail": "Bestätigungsmail braucht SMTP im Realm: ops/configure_dev_realm.py",
+  "verifyEmail": false,
   "roles": {
     "realm": [
       {

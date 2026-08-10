@@ -23,12 +23,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
 
 - **Empfänger-Verwaltung (Admin-Maske `empfaenger.html`), verteiler-zentriert:** zuerst Verteiler per Dropdown wählen, dann aktive Empfänger per E-Mail-Filter durchsuchen (Paging) und das Abonnement pro Zeile per „Abonniert“-Checkbox pflegen; Pflicht-Verteiler zeigen alle aktiven Empfänger mit gesperrter Checkbox (implizites Abo, ADR-0009). API: `GET /api/v1/admin/users` (E-Mail-Suche mit Wildcard-Escaping, `is_active`-Filter), `PUT/DELETE /api/v1/admin/users/{id}/subscriptions/{topic}`; zusätzlich `PATCH /api/v1/admin/users/{id}` zum Deaktivieren/Reaktivieren (API-only, Selbst-Deaktivierung gesperrt; erneuter SSO-Login reaktiviert — Offboarding-Semantik, ADR-0010). Admin-Fremdänderungen werden bei echter Änderung auditiert; bewusst ohne Verhaltensdaten (`last_login_at`) im UI/Payload (B5).
 
+- **Selbstregistrierung über den IdP:** Die Anmeldeseite bietet einen „Registrieren“-Link (Keycloak, E-Mail als Benutzername, optional mit Bestätigungsmail); neue Nutzer werden im Portal automatisch als Empfänger angelegt und erhalten Pflicht-Verteiler sofort. Bewusst **ohne** eigene Registrierungsmaske und Passwortverwaltung im Portal (ADR-0021). Konfiguration: `ops/configure_dev_realm.py`.
+- **DEV-Benutzer per Skript:** `ops/create_dev_user.py --email <adresse> [--admin]` legt Keycloak-Benutzer inklusive Admin-Rolle an — reproduzierbar nach Container-Neuaufbau, da der DEV-Keycloak seinen Datenstand nicht persistiert.
+- **`ops/check_smtp.py`** prüft Verbindung, TLS und Anmeldung am SMTP-Server ohne Versand (optional `--send-to` für eine Testmail).
 - **SMTP-Auth per OAuth2 (`SMTP_AUTH_MODE=oauth2`):** Microsoft Modern Auth / SASL-XOAUTH2 für Outlook.com und Exchange Online, die Passwörter und App-Passwörter ablehnen (`535 5.7.139`). Access-Tokens holt und cacht das Backend selbst aus dem Refresh-Token; `backend/scripts/get_oauth_token.py` beschafft diesen einmalig per Device-Code-Flow (kein Client-Secret, kein Redirect-URI). Einrichtung inkl. Azure-App-Registrierung: RUNBOOK 3b; Entscheidung: ADR-0012.
 - **Test-Umleitung `MAIL_REDIRECT_TO`:** Leitet alle ausgehenden Mails an eine einzelne Adresse um (Default aus). Die Versandhistorie behält die echten Empfänger, jede Mail trägt zusätzlich `X-Original-Recipient`. Gedacht für Abnahme-/Demozwecke mit einem echten Postfach — in PROD leer lassen.
 
 ### Geändert
 - CSP wieder strikt (`script-src 'self'`): Seiten-Skripte in externe Dateien ausgelagert (`abos.js`, `versand.js`), Inline-Handler entfernt (ADR-0020; ersetzt die Zwischenlösung `'unsafe-inline'`).
 - DEV-Stack ohne Bind-Mounts (Docker-Desktop-File-Sharing-Falle auf Windows/OneDrive); Live-Reload optional über `compose.dev.reload.yaml`; Keycloak-Realm ins Image gebacken.
+
+- NGINX reicht `/docs` und `/openapi.json` durch — die Swagger-UI war über den Reverse Proxy nicht erreichbar (404), obwohl die README sie nannte. Das Backend liefert sie weiterhin nur bei `APP_ENV=dev`.
 
 ### Behoben (adversariales Code-Review, 19 Befunde — alle „mittel“ + 10 „niedrig“ gefixt)
 - **Worker:** Fehlerisolation pro Versandauftrag (ein defekter Auftrag konnte alle weiteren blockieren — Starvation); „Poison-Empfänger“ (nicht erstellbare Nachricht, z. B. Headerzeichen in der Adresse) läuft jetzt auf `failed` statt den Auftrag ewig in `sending` zu halten.
