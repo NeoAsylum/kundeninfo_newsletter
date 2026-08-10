@@ -58,6 +58,18 @@ class OidcClient:
         internal = self._s.oidc_internal_base_url.rstrip("/")
         if not internal:
             return url
+        # Es wird ausschließlich der Origin ersetzt. Ein versehentlich
+        # mitkonfigurierter Pfad (z. B. http://keycloak:8081/idp bei einem Issuer
+        # .../idp/realms/dev) würde den Pfad verdoppeln → 404. Deshalb abschneiden.
+        internal_parts = urlparse(internal)
+        if internal_parts.scheme and internal_parts.netloc:
+            if internal_parts.path.strip("/"):
+                log.warning(
+                    "OIDC_INTERNAL_BASE_URL enthält den Pfad '%s' — ignoriert; der Pfad "
+                    "kommt aus OIDC_ISSUER_URL, es wird nur der Origin verwendet",
+                    internal_parts.path,
+                )
+            internal = f"{internal_parts.scheme}://{internal_parts.netloc}"
         public = urlparse(self.issuer)
         public_origin = f"{public.scheme}://{public.netloc}"
         if url.startswith(public_origin):

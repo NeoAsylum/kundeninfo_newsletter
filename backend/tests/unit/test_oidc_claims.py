@@ -65,3 +65,28 @@ def test_ohne_internal_base_keine_umschreibung():
     client = _client(oidc_issuer_url="https://login.example/tenant/v2.0")
     url = "https://login.example/tenant/v2.0/token"
     assert client._to_internal(url) == url
+
+
+def test_internal_base_url_mit_pfad_verdoppelt_nicht():
+    """Regression: OIDC_INTERNAL_BASE_URL mit Pfad ergab /idp/idp/... → 404.
+    Nur der Origin wird ersetzt, der Pfad kommt aus der Issuer-URL."""
+    client = _client(
+        oidc_issuer_url="https://portal.example/idp/realms/dev",
+        oidc_internal_base_url="http://keycloak:8081/idp",
+    )
+    assert (
+        client._to_internal(
+            "https://portal.example/idp/realms/dev/.well-known/openid-configuration"
+        )
+        == "http://keycloak:8081/idp/realms/dev/.well-known/openid-configuration"
+    )
+
+
+def test_internal_base_url_ohne_pfad_bleibt_korrekt():
+    client = _client(
+        oidc_issuer_url="https://portal.example/idp/realms/dev",
+        oidc_internal_base_url="http://keycloak:8081",
+    )
+    assert client._to_internal("https://portal.example/idp/realms/dev/protocol/token") == (
+        "http://keycloak:8081/idp/realms/dev/protocol/token"
+    )

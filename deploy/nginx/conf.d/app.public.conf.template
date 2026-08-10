@@ -1,0 +1,18 @@
+# Vorlage für den öffentlichen Betrieb. ${PUBLIC_HOST} wird beim Containerstart
+# ersetzt (nginx envsubst-Template-Mechanik).
+#
+# HTTP: ausschließlich ACME-Challenge und Weiterleitung auf HTTPS.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${PUBLIC_HOST};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}

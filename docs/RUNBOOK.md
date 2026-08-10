@@ -241,6 +241,82 @@ das Zielpostfach. **In Produktion leer lassen.**
 die Konfiguration wird beim Start gelesen. Nach Codeänderungen zusätzlich `--build`,
 weil Code und Frontend ins Image gebacken sind.
 
+## 3c. Öffentlich erreichbarer Pilotbetrieb (Internet-VM)
+
+Für Demos außerhalb des Konzernnetzes läuft eine eigene Variante: `compose.public.yaml`.
+Unterschied zu `compose.prod.yaml`: Keycloak läuft mit (es gibt keinen Konzern-IdP),
+das Zertifikat kommt von Let us Encrypt statt aus der Konzern-PKI, und die Speicher-
+limits sind auf eine kleine VM (1,8 GB RAM) ausgelegt.
+
+**Aktuelle Instanz:** `https://kunden-stoerungs-info.com` auf 94.237.99.120
+(Ubuntu 26.04, 2 vCPU, 1,8 GB RAM + 2 GB Swap).
+
+### Aufbau von null
+
+```bash
+# 1. VM grundausstatten (Docker, Swap, Firewall 22/80/443, SSH nur Key, fail2ban)
+scp deploy/vm/bootstrap.sh root@<host>:/tmp/ && ssh root@<host> bash /tmp/bootstrap.sh
+
+# 2. DNS: A-Record der Domain auf die VM-IP (bei Cloudflare zunächst "DNS only",
+#    sonst schlägt die Zertifikatsausstellung fehl)
+
+# 3. Code auf die VM bringen (kein Registry-Zugang nötig)
+tar --exclude=.git --exclude=.env -czf /tmp/app.tgz compose*.yaml backend frontend \
+    deploy ops .env.example Makefile
+scp /tmp/app.tgz root@<host>:/tmp/
+ssh root@<host> 'mkdir -p /opt/stoerungsinfo && tar -xzf /tmp/app.tgz -C /opt/stoerungsinfo'
+
+# 4. Ausrollen: erzeugt .env mit frischen Secrets, legt die Keycloak-DB an,
+#    startet den Stack, holt das Zertifikat, konfiguriert den Realm
+ssh root@<host> 'cd /opt/stoerungsinfo && export PUBLIC_HOST=<domain> \
+    ACME_EMAIL=<mail> SMTP_HOST=… SMTP_USER=… SMTP_PASSWORD=… MAIL_FROM=… \
+    && bash deploy/vm/deploy.sh'
+
+# 5. Zertifikatserneuerung als Cron (zweimal täglich; erneuert nur bei < 30 Tagen)
+ssh root@<host> "(crontab -l 2>/dev/null; echo '17 3,15 * * * \
+    /opt/stoerungsinfo/deploy/vm/renew-cert.sh >> /var/log/stoerungsinfo-cert.log 2>&1') \
+    | crontab -"
+
+# 6. Benutzer anlegen (Admin für die Versand-Maske)
+ssh root@<host> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --admin'
+```
+
+`deploy.sh` ist idempotent: Ein erneuter Lauf aktualisiert Container und Realm, behält
+aber Secrets und Zertifikat. Nur Mail-Variablen werden übernommen, wenn sie beim Aufruf
+gesetzt sind.
+
+### Betriebseigenschaften
+
+| Thema | Umsetzung |
+|---|---|
+| **TLS** | NGINX terminiert; Zertifikat im Volume `certbot_conf`. Der TLS-Serverblock wird erst aktiv, wenn ein Zertifikat existiert (`entrypoint-public.sh`) — sonst könnte NGINX nicht starten und die ACME-Prüfung nie beantworten. |
+| **Erneuerung** | `deploy/vm/renew-cert.sh` per Cron: erneuert und **lädt NGINX neu**. Ohne den Reload würde NGINX das neue Zertifikat nicht verwenden und der Dienst nach 90 Tagen ausfallen. |
+| **Keycloak** | Produktionsmodus, Speicher in MariaDB (Datenbank `keycloak`), erreichbar unter `/idp`. Adminkonsole und `/idp/metrics` sind per NGINX mit 404 blockiert. |
+| **Adminkonsole** | Nur über SSH-Tunnel: `ssh -L 8081:localhost:8081 root@<host>`, dann `http://localhost:8081/idp/`. Zugangsdaten: `KEYCLOAK_ADMIN*` in der `.env`. |
+| **Secrets** | Alle in `/opt/stoerungsinfo/.env` (`chmod 600`), beim ersten Deploy per `openssl rand` erzeugt. Keine Dev-Werte, nichts aus dem Repo. |
+| **Registrierung** | Offen (Entscheidung des Auftraggebers), mit Bestätigungsmail und Brute-Force-Schutz. Abschalten: `registrationAllowed` per Keycloak-Adminkonsole oder `configure-realm.sh` anpassen. |
+| **Speicher** | Limits: nginx 96 MB, api 384 MB, mariadb 320 MB, keycloak 768 MB. Im Betrieb ~1,1 GB belegt, Swap als Puffer. |
+| **Reboot** | `restart: unless-stopped` + aktivierter Docker-Dienst — der Stack kommt selbstständig wieder. |
+
+### Prüfen, ob alles läuft
+
+```bash
+curl -s https://<domain>/healthz          # Version und Git-SHA
+curl -s https://<domain>/readyz           # DB, SMTP, Outbox-Rückstau
+ssh root@<host> 'cd /opt/stoerungsinfo && docker compose -f compose.yaml \
+    -f compose.db.yaml -f compose.public.yaml ps'
+```
+
+### Offene Punkte für diese Instanz
+
+* **Kein Backup konfiguriert.** `ops/backup.sh` ist auf die Konzern-Variante zugeschnitten
+  (Compose-Dateien ohne `compose.public.yaml`) und läuft hier nicht. Für einen Pilot mit
+  echten Abo-Daten muss ein Dump-Cron eingerichtet werden.
+* **Cloudflare-Proxy** steht auf „DNS only". Nach der Zertifikatsausstellung kann auf
+  „Proxied" mit *SSL/TLS → Full (strict)* umgestellt werden: versteckt die VM-IP und
+  filtert Angriffe vorab. Die Zertifikatserneuerung funktioniert weiter, weil Cloudflare
+  `/.well-known/acme-challenge/` durchreicht.
+
 ## 4. Notfall-Versand bei Systemausfall
 
 Fällt während einer Großstörung das Portal, die DB oder der IdP aus:

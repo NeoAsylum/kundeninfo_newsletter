@@ -1,0 +1,107 @@
+# Overlay für den öffentlich erreichbaren Betrieb (Pilot/Demo im Internet).
+#
+#   docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml up -d
+#   (bzw. deploy/vm/deploy.sh)
+#
+# Unterschiede zu compose.prod.yaml:
+#  * Keycloak läuft mit (es gibt keinen Konzern-IdP) — unter /idp hinter NGINX,
+#    mit MariaDB als Speicher statt der Dev-H2-Datei.
+#  * TLS-Zertifikate kommen von Let's Encrypt (certbot-Volume) statt Konzern-PKI.
+#  * Speicherlimits sind auf 1,8 GB RAM ausgelegt (Summe ~1,6 GB + Swap).
+# Kein Mailpit: es wird echt versendet (SMTP_* in der .env).
+services:
+  nginx:
+    build:
+      dockerfile: deploy/nginx/Dockerfile.public
+    image: stoerungsinfo-nginx:public
+    environment:
+      # Hostname für Serverblock und Zertifikatspfad (aus PUBLIC_BASE_URL abgeleitet,
+      # gesetzt von deploy/vm/deploy.sh)
+      PUBLIC_HOST: ${PUBLIC_HOST:?PUBLIC_HOST fehlt (z. B. kunden-stoerungs-info.com)}
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    cpus: "0.5"
+    mem_limit: 96m
+    volumes:
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+    depends_on:
+      keycloak:
+        condition: service_started
+    logging: &logrotate
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    restart: unless-stopped
+    cpus: "1.0"
+    mem_limit: 384m
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *logrotate
+
+  mariadb:
+    # Kleine VM: Buffer-Pool begrenzen, sonst nimmt InnoDB zu viel
+    command: >
+      --innodb-buffer-pool-size=128M
+      --max-connections=60
+      --performance-schema=OFF
+    mem_limit: 320m
+    logging: *logrotate
+
+  keycloak:
+    build:
+      context: .
+      dockerfile: deploy/keycloak/Dockerfile
+    image: stoerungsinfo-keycloak:public
+    # Produktionsmodus: HTTP nur intern (NGINX terminiert TLS), Speicher in MariaDB.
+    # Ohne --optimized: Keycloak baut den DB-Provider beim Start selbst (~20 s mehr),
+    # dafür bleibt dasselbe Image in DEV mit start-dev nutzbar.
+    command: ["start", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:?KEYCLOAK_ADMIN fehlt}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD fehlt}
+      KC_DB: mariadb
+      KC_DB_URL: jdbc:mariadb://mariadb:3306/keycloak
+      KC_DB_USERNAME: ${DB_USER:-app}
+      KC_DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt}
+      # Öffentliche Adresse; NGINX reicht /idp durch (relative path)
+      KC_HOSTNAME: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL fehlt}/idp
+      KC_HTTP_RELATIVE_PATH: /idp
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_PORT: "8081"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_CACHE: local
+      # Heap klein halten — die VM hat 1,8 GB für alles
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx512m"
+    restart: unless-stopped
+    mem_limit: 768m
+    networks: [appnet]
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    logging: *logrotate
+
+  # Zertifikatsverwaltung: wird auf Abruf gestartet (certonly / renew), läuft NICHT
+  # dauerhaft. Die Erneuerung übernimmt ein Cron-Job auf der VM, der danach NGINX
+  # neu laden kann (deploy/vm/renew-cert.sh) — ein Dauer-Container könnte das
+  # Nachladen nicht auslösen, das Zertifikat wäre nach 90 Tagen abgelaufen und der
+  # Dienst offline.
+  certbot:
+    image: certbot/certbot:v5.1.0
+    profiles: ["certbot"]
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    mem_limit: 128m
+    logging: *logrotate
+
+volumes:
+  certbot_conf:
+  certbot_webroot:

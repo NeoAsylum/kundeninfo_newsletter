@@ -1,0 +1,21 @@
+# NGINX für den öffentlichen Betrieb: TLS von Let's Encrypt, Keycloak unter /idp.
+# nginx:stable-alpine, per Digest gepinnt (Plan 9.7)
+FROM nginx:stable-alpine@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
+
+RUN rm /etc/nginx/conf.d/default.conf
+COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY deploy/nginx/includes/ /etc/nginx/includes/
+
+# HTTP-Block: wird vom Standard-Entrypoint (20-envsubst-on-templates.sh) automatisch
+# mit PUBLIC_HOST gefüllt.
+COPY deploy/nginx/conf.d/app.public.conf.template /etc/nginx/templates/default.conf.template
+
+# TLS-Block bewusst NICHT unter /etc/nginx/templates/: Der Standard-Entrypoint würde
+# ihn sofort aktivieren, und NGINX bricht ohne vorhandenes Zertifikat beim Start ab —
+# was die ACME-Challenge verhindert, die das Zertifikat erst beschafft.
+COPY deploy/nginx/conf.d/app.public-tls.conf.template /etc/nginx/tls-template/
+
+COPY frontend/public/ /usr/share/nginx/html/
+
+COPY deploy/nginx/entrypoint-public.sh /docker-entrypoint.d/40-tls-switch.sh
+RUN chmod +x /docker-entrypoint.d/40-tls-switch.sh
