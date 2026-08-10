@@ -65,37 +65,65 @@ Sobald die zentrale Datenbank-Infrastruktur freigeschaltet ist:
 
 ---
 
-## 3b. Testversand an ein echtes Postfach (Abnahme/Demo)
+## 3b. Versand über ein echtes Postfach (Abnahme/Demo)
 
-Für Abnahmen soll der Versand in einem echten Postfach ankommen, ohne dass reale
-Verteiler angeschrieben werden. Zwei unabhängige Schalter in der `.env`:
+Drei **unabhängige** Schalter in der `.env` — nicht verwechseln:
 
-1. **Umleitung** — `MAIL_REDIRECT_TO=<zieladresse>`: Alle Mails gehen an diese eine
-   Adresse. Die Versandhistorie behält die echten Empfänger; jede Mail trägt den
-   Header `X-Original-Recipient`. Achtung: Es wird weiterhin **eine Mail je
-   Empfänger** erzeugt — bei großen Verteilern flutet das das Zielpostfach.
-2. **Echter SMTP-Server** — Mailpit stellt nichts zu, für echte Zustellung braucht es
-   einen erreichbaren Server, z. B. für ein Microsoft-Konto:
+| Schalter | Bedeutung |
+|---|---|
+| `MAIL_FROM` / `MAIL_FROM_NAME` | **Absender** der Mails (`From:`-Header) |
+| `SMTP_*` | **Wer transportiert** — Mailpit (sammelt, stellt nicht zu) oder ein echter Server |
+| `MAIL_REDIRECT_TO` | **Umleitung aller Mails** an eine Adresse statt an die Abonnenten (Default: aus) |
 
-   ```dotenv
-   SMTP_HOST=smtp-mail.outlook.com
-   SMTP_PORT=587
-   SMTP_SECURITY=starttls
-   SMTP_AUTH_MODE=login
-   SMTP_USER=<konto@outlook.de>
-   SMTP_PASSWORD=<App-Passwort, NICHT das Kontopasswort>
-   MAIL_FROM=<konto@outlook.de>          # muss zum authentifizierten Konto passen
-   MAIL_REDIRECT_TO=<konto@outlook.de>
-   ```
+### Absender setzen
 
-   Das App-Passwort wird unter `account.microsoft.com` → Sicherheit erzeugt und
-   erfordert aktivierte Zwei-Faktor-Authentifizierung. Outlook.com drosselt bei
-   ~300 Mails/Tag.
+Reine Konfiguration, sofort wirksam nach Neustart:
 
-**Wichtig:** Nach jeder `.env`-Änderung neu starten (`make dev` bzw.
-`make prod-localdb`) — Konfiguration wird beim Start gelesen. Läuft der Stack mit
-eingebackenem Code, muss das Image nach Codeänderungen neu gebaut werden (`--build`).
-Zum Zurückschalten auf Mailpit die SMTP-Zeilen und `MAIL_REDIRECT_TO` wieder leeren.
+```dotenv
+MAIL_FROM=<absender@example.de>
+MAIL_FROM_NAME=Störungsinfo (Test)
+```
+
+Solange über Mailpit versendet wird, ist jede Absenderadresse erlaubt — Mailpit prüft
+nichts. Ein echter Server akzeptiert dagegen nur Absender, die zum authentifizierten
+Konto passen (Microsoft antwortet sonst mit `5.7.x`).
+
+### Wirklich zustellen (echter SMTP-Server)
+
+```dotenv
+SMTP_HOST=smtp-mail.outlook.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_AUTH_MODE=login
+SMTP_USER=<konto@outlook.de>
+SMTP_PASSWORD=<App-Passwort, NICHT das Kontopasswort>
+MAIL_FROM=<konto@outlook.de>        # muss zum SMTP_USER passen
+```
+
+App-Passwort: `account.microsoft.com` → Sicherheit → App-Passwörter (erfordert
+Zwei-Faktor-Authentifizierung). Limit ca. 300 Mails/Tag.
+
+**Vorsicht Bounces:** Die Demo-Empfänger (`*@example.corp`) existieren nicht. Beim
+Versand über einen echten Server kommen für jeden davon Unzustellbarkeitsberichte
+zurück. Vor einem echten Test entweder nur an einen Verteiler mit erreichbaren
+Adressen senden oder die Demo-Empfänger lokal umschreiben:
+
+```sql
+-- lokale DEV-DB, reversibel:
+UPDATE users SET email = '<echte@adresse.de>' WHERE oidc_sub = 'seed-demo-1';
+```
+
+### Umleitung (nur wenn gewünscht)
+
+`MAIL_REDIRECT_TO=<zieladresse>` schickt **alle** Mails an diese eine Adresse; die
+Versandhistorie behält die echten Empfänger, jede Mail trägt zusätzlich
+`X-Original-Recipient`. Nützlich für Demos, ohne reale Verteiler anzuschreiben —
+erzeugt aber weiterhin **eine Mail je Empfänger** und flutet bei großen Verteilern
+das Zielpostfach. **In Produktion leer lassen.**
+
+**Immer:** Nach `.env`-Änderungen neu starten (`make dev` bzw. `make prod-localdb`) —
+die Konfiguration wird beim Start gelesen. Nach Codeänderungen zusätzlich `--build`,
+weil Code und Frontend ins Image gebacken sind.
 
 ## 4. Notfall-Versand bei Systemausfall
 
