@@ -41,8 +41,10 @@ Sobald der Command erfolgreich beendet ist, laufen alle 5 Docker-Container im En
 
 ### DEV-Testuser (Keycloak Realm `dev`)
 
-* **Mitarbeiter (Standard)**: E-Mail `mia@example.corp` (Zugriff auf Abo-Maske)
-* **Problemmanager (Admin)**: E-Mail `admin1@example.corp` (Zugriff auf Abo- & Versand-Maske)
+Das Passwort für alle DEV-Testuser lautet **`test`**:
+
+* **Mitarbeiter (Standard)**: Username `mitarbeiter1` (E-Mail `mitarbeiter1@example.corp`) · Passwort: **`test`**
+* **Problemmanager (Admin)**: Username `admin1` (E-Mail `admin1@example.corp`) · Passwort: **`test`**
 
 ---
 
