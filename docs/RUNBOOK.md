@@ -100,13 +100,66 @@ SMTP_PASSWORD=<passwort/app-passwort/api-key>
 MAIL_FROM=<absender>                # muss zum authentifizierten Konto passen
 ```
 
-> **Outlook.com / Microsoft 365 funktioniert so NICHT.** Am 2026-08-10 verifiziert:
+> **Private Outlook.com-Postfächer funktionieren gar nicht** (am 2026-08-10 verifiziert):
 > `smtp-mail.outlook.com:587` mit App-Passwort antwortet
-> `535 5.7.139 Authentication unsuccessful, basic authentication is disabled`.
-> Microsoft hat Basic Auth für SMTP AUTH abgeschaltet — App-Passwörter beruhen darauf
-> und funktionieren deshalb ebenfalls nicht mehr; für Consumer- und M365-Postfächer ist
-> **OAuth2 (Modern Auth, XOAUTH2)** Pflicht. Das ist im MVP bewusst nicht implementiert
-> (siehe ADR-0012, Erweiterungspunkt).
+> `535 5.7.139 Authentication unsuccessful, basic authentication is disabled`. Microsoft
+> hat Basic Auth für SMTP AUTH abgeschaltet, und bei Consumer-Postfächern ist SMTP-
+> Clientauthentifizierung **mailbox-seitig deaktiviert** — für Endnutzer nicht
+> aktivierbar (die PowerShell-Schalter existieren nur für Microsoft 365 mit
+> Admin-Zugriff). Auch der OAuth2-Modus scheitert dort deshalb mit demselben Fehler.
+> `SMTP_AUTH_MODE=oauth2` bleibt nutzbar für **Exchange Online mit Tenant** (relevant
+> für den Konzern-Relay, Frage B2) — siehe eigenen Abschnitt unten.
+
+### Empfohlen für Tests: Gmail mit App-Passwort
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_AUTH_MODE=login
+SMTP_USER=<konto@gmail.com>
+SMTP_PASSWORD=<App-Passwort, 16 Zeichen OHNE Leerzeichen>
+MAIL_FROM=<konto@gmail.com>          # muss zu SMTP_USER passen
+```
+
+App-Passwort: Zwei-Faktor-Authentifizierung aktivieren, dann
+[myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Google
+zeigt es mit Leerzeichen an — beim Eintragen weglassen. Einzeln widerrufbar.
+
+Vor dem ersten Versand prüfen (Verbindung + Auth, **ohne** Mail zu senden):
+
+```bash
+python backend/scripts/check_smtp.py
+python backend/scripts/check_smtp.py --send-to <eigene@adresse>   # mit einer Testmail
+```
+
+Soll im `From` eine andere Adresse stehen als das Gmail-Konto, muss sie in Gmail unter
+*Einstellungen → Konten → „Weitere E-Mail-Adresse hinzufügen“* verifiziert werden;
+andernfalls ersetzt Google den Absender.
+
+### Fallen im Testbetrieb mit echtem Versand
+
+* **Demo-Adressen erzeugen Bounces.** Die Keycloak-Testuser (`*@example.corp`)
+  existieren nicht. Für jeden aktiven Empfänger mit solcher Adresse kommt ein
+  Unzustellbarkeitsbericht ins Absenderpostfach. Zustand prüfen und aufräumen:
+
+  ```sql
+  SELECT email, is_active FROM users ORDER BY is_active DESC;
+  DELETE s FROM subscriptions s JOIN users u ON u.id = s.user_id
+      WHERE u.email LIKE '%@example.corp';
+  UPDATE users SET is_active = 0 WHERE email LIKE '%@example.corp';
+  ```
+
+* **Login reaktiviert Testuser.** Meldet sich jemand per SSO an, wird sein Datensatz
+  per JIT wieder aktiv (ADR-0010) — eine Anmeldung als `admin1` macht
+  `admin1@example.corp` also erneut zum Empfänger von Pflicht-Verteilern. Nach
+  Anmeldungen erneut aufräumen, oder dauerhaft absichern mit
+  `MAIL_REDIRECT_TO=<eigene@adresse>`: dann gehen alle Mails ausschließlich dorthin,
+  Bounces sind ausgeschlossen und `X-Original-Recipient` zeigt den gedachten Empfänger.
+
+* **Integrationstests verändern Abos** (sie abonnieren/kündigen KAP für die Testuser)
+  und würden mit echtem SMTP Mails nach außen schicken. Der Session-Guard bricht sie
+  deshalb ab, solange `SMTP_HOST` nicht `mailpit` ist.
 
 Praktikable Wege für einen echten Testversand:
 
