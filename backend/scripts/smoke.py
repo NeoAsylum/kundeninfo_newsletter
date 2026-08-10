@@ -62,7 +62,8 @@ def main() -> int:
         r = client.get(f"{base}/nginx-health")
         check("NGINX-Stub", r.status_code == 200)
 
-    print(f"\n{'SMOKE FEHLGESCHLAGEN' if CHECKS_FAILED else 'SMOKE GRUEN'} ({CHECKS_FAILED} Fehler)")
+    verdict = "SMOKE FEHLGESCHLAGEN" if CHECKS_FAILED else "SMOKE GRUEN"
+    print(f"\n{verdict} ({CHECKS_FAILED} Fehler)")
     return 1 if CHECKS_FAILED else 0
 
 
