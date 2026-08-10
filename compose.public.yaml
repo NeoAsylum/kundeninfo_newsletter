@@ -39,19 +39,59 @@ services:
   api:
     restart: unless-stopped
     cpus: "1.0"
-    mem_limit: 384m
+    mem_limit: 320m
     read_only: true
     tmpfs:
       - /tmp
+    # Nur die tatsächlich benötigten Variablen statt der kompletten .env: Der
+    # internetseitige Container braucht weder DB_ROOT_PASSWORD noch die
+    # Keycloak-Admin-Zugangsdaten (Grundsatz der geringsten Rechte).
+    environment:
+      APP_ENV: ${APP_ENV}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OIDC_INTERNAL_BASE_URL: ${OIDC_INTERNAL_BASE_URL}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OIDC_EMAIL_CLAIM: ${OIDC_EMAIL_CLAIM:-email}
+      OIDC_ROLES_CLAIM: ${OIDC_ROLES_CLAIM:-realm_access.roles}
+      ADMIN_ROLE_VALUE: ${ADMIN_ROLE_VALUE}
+      SESSION_SECRET: ${SESSION_SECRET}
+      SESSION_MAX_AGE: ${SESSION_MAX_AGE:-28800}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURITY: ${SMTP_SECURITY}
+      SMTP_AUTH_MODE: ${SMTP_AUTH_MODE}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME}
+      MAIL_REDIRECT_TO: ${MAIL_REDIRECT_TO:-}
+      SMTP_MAX_PER_MINUTE: ${SMTP_MAX_PER_MINUTE:-30}
+      SMTP_BATCH_SIZE: ${SMTP_BATCH_SIZE:-50}
+      SMTP_TIMEOUT_S: ${SMTP_TIMEOUT_S:-30}
+      WORKER_ENABLED: ${WORKER_ENABLED:-true}
+      WORKER_POLL_INTERVAL_S: ${WORKER_POLL_INTERVAL_S:-5}
+      WORKER_STALE_AFTER_S: ${WORKER_STALE_AFTER_S:-600}
+      WORKER_RETRY_BACKOFF_S: ${WORKER_RETRY_BACKOFF_S:-60,300,900}
+      RETENTION_DAYS_RECIPIENTS: ${RETENTION_DAYS_RECIPIENTS:-}
+      RETENTION_DAYS_AUDIT: ${RETENTION_DAYS_AUDIT:-}
+      AUDIT_SUBSCRIPTIONS: ${AUDIT_SUBSCRIPTIONS:-false}
     logging: *logrotate
 
   mariadb:
-    # Kleine VM: Buffer-Pool begrenzen, sonst nimmt InnoDB zu viel
+    # Kleine VM: Buffer-Pool begrenzen, sonst nimmt InnoDB zu viel.
+    # max-connections niedrig halten — jede Verbindung kostet Thread-Stack und
+    # Puffer; ein api-Prozess plus Keycloak-Pool brauchen keine 60.
     command: >
-      --innodb-buffer-pool-size=128M
-      --max-connections=60
+      --innodb-buffer-pool-size=96M
+      --max-connections=30
       --performance-schema=OFF
-    mem_limit: 320m
+      --tmp-table-size=16M
+      --max-heap-table-size=16M
+    mem_limit: 288m
     logging: *logrotate
 
   keycloak:
@@ -78,14 +118,24 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
       KC_CACHE: local
-      # Heap klein halten — die VM hat 1,8 GB für alles
-      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx512m"
+      # Heap klein halten — die VM hat 1,8 GB für alles. Das Limit muss über dem
+      # Heap liegen (Metaspace, Code-Cache, Thread-Stacks, Direct Buffers),
+      # sonst kommt der OOM-Killer statt eines Java-OutOfMemoryError.
+      JAVA_OPTS_KC_HEAP: "-Xms192m -Xmx384m"
     restart: unless-stopped
-    mem_limit: 768m
+    mem_limit: 640m
     networks: [appnet]
     depends_on:
       mariadb:
         condition: service_healthy
+    healthcheck:
+      # Keycloak >= 25: /health/ready liegt auf Management-Port 9000; das Image
+      # hat kein curl/wget → TCP-Connect als Ready-Signal.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 150s
     logging: *logrotate
 
   # Zertifikatsverwaltung: wird auf Abruf gestartet (certonly / renew), läuft NICHT

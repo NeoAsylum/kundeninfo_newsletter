@@ -1,6 +1,17 @@
 # TLS-Serverblock — wird vom Einstiegsskript aktiviert, sobald ein Zertifikat für
 # ${PUBLIC_HOST} vorliegt. Ohne diese Trennung startet NGINX nicht, weil es beim
 # Laden ein nicht vorhandenes Zertifikat nicht öffnen kann.
+# Unbekannte Hostnamen auf 443 abweisen (Scanner, direkte IP-Aufrufe).
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    http2 on;
+    server_name _;
+    ssl_certificate     /etc/letsencrypt/live/${PUBLIC_HOST}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${PUBLIC_HOST}/privkey.pem;
+    return 421;
+}
+
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
@@ -15,25 +26,74 @@ server {
     ssl_session_timeout 1h;
 
     add_header Strict-Transport-Security "max-age=31536000" always;
-    include /etc/nginx/includes/security-headers.inc;
 
-    # Keycloak (Login, Registrierung, Passwort-Reset) unter /idp.
-    # Die Admin-Konsole ist bewusst NICHT von außen erreichbar — Zugriff nur über
-    # einen SSH-Tunnel (siehe RUNBOOK): ssh -L 8081:localhost:8081 …
-    location /idp/ {
-        proxy_pass http://keycloak:8081/idp/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-Port 443;
-        proxy_buffer_size 16k;
-        proxy_buffers 8 16k;
+    limit_conn perip 24;
+
+    # --- Keycloak unter /idp -------------------------------------------------
+    # ALLOWLIST statt Blockliste: Nur die Pfade, die der Anmeldevorgang wirklich
+    # braucht, werden durchgereicht. Eine Blockliste per Regex war umgehbar —
+    # /idp/admin;x/... traf die Regex nicht, RESTEasy verwirft den
+    # Matrix-Parameter aber beim Routing, sodass die Admin-REST-API offen war.
+    # '^~' hat Vorrang vor Regex-Locations und matcht auch solche Suffixe.
+
+    # Registrierung und Passwort-Reset: Hier löst jeder Aufruf eine Mail über das
+    # konfigurierte Postfach aus — streng drosseln, sonst ist der Dienst ein
+    # Mailversender für Fremde und das Tageskontingent schnell verbraucht.
+    location ^~ /idp/realms/dev/login-actions/registration {
+        limit_req zone=idp_mail burst=5 nodelay;
+        include /etc/nginx/includes/idp-proxy.inc;
     }
 
-    location ~ ^/idp/(admin|metrics)(/|$) {
+    location ^~ /idp/realms/dev/login-actions/reset-credentials {
+        limit_req zone=idp_mail burst=5 nodelay;
+        include /etc/nginx/includes/idp-proxy.inc;
+    }
+
+    # Übrige Anmeldeschritte: moderat begrenzen. Falsche Passwörter fängt der
+    # Brute-Force-Schutz von Keycloak ab; mehrere Nutzer können hinter einer
+    # NAT-Adresse liegen und dürfen sich nicht gegenseitig aussperren.
+    location ^~ /idp/realms/dev/login-actions/ {
+        limit_req zone=idp_read burst=20 nodelay;
+        include /etc/nginx/includes/idp-proxy.inc;
+    }
+
+    location ^~ /idp/realms/dev/protocol/ {
+        limit_req zone=idp_read burst=30 nodelay;
+        include /etc/nginx/includes/idp-proxy.inc;
+    }
+
+    location ^~ /idp/realms/dev/.well-known/ {
+        limit_req zone=idp_read burst=30 nodelay;
+        include /etc/nginx/includes/idp-proxy.inc;
+    }
+
+    # Statische Anmeldeseiten-Ressourcen (Themes, JS, CSS)
+    location ^~ /idp/resources/ {
+        include /etc/nginx/includes/idp-proxy.inc;
+    }
+
+    location ^~ /idp/js/ {
+        include /etc/nginx/includes/idp-proxy.inc;
+    }
+
+    # Alles andere unter /idp bleibt draußen: Adminkonsole und -REST-API,
+    # /idp/realms/master, /idp/metrics, /idp/health.
+    location ^~ /idp {
         return 404;
     }
 
+    # --- Portal ---------------------------------------------------------------
+    # Die Sicherheits-Header setzt app-locations.inc pro Location, NICHT serverweit:
+    # Keycloak liefert unter /idp eigene, passende Header — eine übergelegte CSP mit
+    # script-src 'self' könnte dessen Anmeldeseiten brechen.
+
+    # OpenAPI-Doku im öffentlichen Betrieb hart zu (Backend liefert sie ohnehin nur
+    # bei APP_ENV=dev — hier hängt der Schutz nicht an einer einzelnen Variable).
+    location = /docs { return 404; }
+    location = /openapi.json { return 404; }
+
+    # /api/, /auth/, /healthz, /readyz und die Statik kommen aus der gemeinsamen
+    # Datei (identisch mit DEV). Eine Drossel braucht /auth/ nicht: Dort entstehen
+    # nur Redirects — Mails verschickt Keycloak über die oben gedrosselten Pfade.
     include /etc/nginx/includes/app-locations.inc;
 }

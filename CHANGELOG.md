@@ -45,3 +45,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
 
 ### Bekannte Abweichungen vom Plan (je mit ADR)
 - Handgeschriebenes CSS statt Tailwind (ADR-0018); aiomysql + `pool_recycle` statt asyncmy + `pool_pre_ping` (ADR-0019); `Secure`-Cookie-Flag nur bei https (ADR-0003); `/readyz` ohne TLS-Restlaufzeit-Check (Überwachung via RUNBOOK-Inventar).
+
+### Sicherheit (Befunde aus dem Review des öffentlichen Deployments)
+
+- **Demo-Konten werden bei jedem Deploy entfernt.** Der importierte Realm enthält DEV-Testnutzer mit dem Passwort `test`, einer davon mit Adminrolle — öffentlich erreichbar wäre das ein offener Zugang zur Versandmaske und zur Empfängerliste. `configure-realm.sh` löscht sie und bricht ab, falls eines übrig bleibt.
+- **`/idp` per Allowlist statt Blockliste.** Die vorherige Regex-Sperre für `/idp/admin` war per Matrix-Parameter umgehbar (`/idp/admin;x/...` erreichte die Keycloak-Admin-API). Jetzt werden nur Anmelde-, Registrierungs-, Protokoll- und Theme-Pfade des Realms `dev` durchgereicht; Adminkonsole, Admin-API, `master`-Realm, Metriken und Health enden mit 404.
+- **Ratenlimits** für Registrierung und Passwort-Reset (dort löst jeder Aufruf eine Mail aus — `SMTP_MAX_PER_MINUTE` greift nicht, weil Keycloak eigenständig versendet), moderatere Limits für die übrigen Anmeldeschritte, Verbindungslimit pro IP.
+- **X-Forwarded-For wird gesetzt statt angehängt** — verhindert, dass ein Client Brute-Force-Zähler und Ratenlimits auf eine fremde IP umlenkt.
+- **Weniger Geheimnisse im internetseitigen Container:** Der API-Container bekommt nur die von ihm benötigten Variablen statt der kompletten `.env` (kein Datenbank-Root- und Keycloak-Adminpasswort mehr).
+- **Kontingent-Fehler des Mailanbieters** (`550 5.4.5 Daily user sending limit exceeded` und Verwandte) gelten als vorübergehend — sonst hätte ein erreichtes Tageslimit alle restlichen Empfänger endgültig als fehlgeschlagen verbucht und die Mails wären verloren.
+- **Backup sichert beide Datenbanken** (`newsletter` und `keycloak`) mit Plausibilitätsprüfung; `deploy.sh` zieht vor jedem Ausrollen einen Dump, weil Migrationen beim Containerstart automatisch laufen.
+- **Unbekannte Hostnamen** werden abgewiesen (Default-Serverblöcke), OpenAPI-Doku im öffentlichen Betrieb hart auf 404, Sicherheits-Header werden pro Location gesetzt statt serverweit (sonst überschrieben sie die Header der Keycloak-Seiten).
+- **DEV-Skripte** (`ops/create_dev_user.py`, `ops/configure_dev_realm.py`) brechen ab, wenn die `.env` `APP_ENV=prod` enthält.
+- Speicherlimits an 1,8 GB RAM angepasst, Keycloak-Healthcheck ergänzt, `.env` wird mit restriktiven Rechten angelegt (statt nachträglich gesetzt), Platten-Aufräumen nach dem Ausrollen.

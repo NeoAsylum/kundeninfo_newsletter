@@ -1,7 +1,17 @@
 # Vorlage für den öffentlichen Betrieb. ${PUBLIC_HOST} wird beim Containerstart
 # ersetzt (nginx envsubst-Template-Mechanik).
-#
-# HTTP: ausschließlich ACME-Challenge und Weiterleitung auf HTTPS.
+
+# Unbekannte Hostnamen (direkte IP-Aufrufe, fremde Domains, Scanner) hart abweisen,
+# damit sie nicht auf dem Portal landen.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 421;
+}
+
+# HTTP für die eigene Domain: ausschließlich ACME-Challenge, Health-Stub und
+# Weiterleitung auf HTTPS.
 server {
     listen 80;
     listen [::]:80;
@@ -10,6 +20,13 @@ server {
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
         default_type "text/plain";
+    }
+
+    # Für den Container-Healthcheck: Er läuft gegen Port 80 und darf keinen
+    # Redirect bekommen, sonst gilt der Container dauerhaft als ungesund.
+    location = /nginx-health {
+        access_log off;
+        return 200 "ok\n";
     }
 
     location / {

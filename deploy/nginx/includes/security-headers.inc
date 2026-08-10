@@ -1,3 +1,7 @@
+# HSTS gehört mit in diese Datei: NGINX ersetzt add_header aus dem Serverblock
+# vollständig, sobald eine Location eigene add_header setzt. Über http (DEV)
+# ignorieren Browser den Header, dort ist er also unschädlich.
+add_header Strict-Transport-Security "max-age=31536000" always;
 add_header X-Content-Type-Options nosniff always;
 add_header X-Frame-Options SAMEORIGIN always;
 add_header Referrer-Policy no-referrer always;

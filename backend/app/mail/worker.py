@@ -35,8 +35,23 @@ from app.mail.render import render_mail
 log = logging.getLogger(__name__)
 
 
+# Kontingent-Meldungen, die als 5xx kommen, aber vorübergehend sind. Ohne diese
+# Ausnahme würde ein erreichtes Tageslimit (Gmail: "550 5.4.5 Daily user sending
+# limit exceeded") alle restlichen Empfänger endgültig als 'failed' abschreiben —
+# die Mails wären verloren, obwohl sie am nächsten Tag zustellbar wären.
+_QUOTA_HINTS = (
+    "5.4.5",  # Gmail: Daily user sending limit exceeded
+    "4.5.3",  # zu viele Empfänger, später erneut
+    "sending limit",
+    "quota exceeded",
+    "rate limited",
+    "try again later",
+    "too many messages",
+)
+
+
 def classify_smtp_error(exc: Exception) -> str:
-    """'transient' (4xx, Timeout, Verbindungsabbruch) oder 'permanent' (5xx)."""
+    """'transient' (4xx, Timeout, Verbindungsabbruch, Kontingent) oder 'permanent' (5xx)."""
     code = getattr(exc, "code", None)
     if code is None:
         recipients = getattr(exc, "recipients", None)  # SMTPRecipientsRefused
@@ -44,6 +59,9 @@ def classify_smtp_error(exc: Exception) -> str:
             first = recipients[0] if isinstance(recipients, list) else None
             code = getattr(first, "code", None)
     if isinstance(code, int) and 500 <= code < 600:
+        text = str(exc).lower()
+        if any(hint in text for hint in _QUOTA_HINTS):
+            return "transient"
         return "permanent"
     return "transient"
 

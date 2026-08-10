@@ -307,15 +307,59 @@ ssh root@<host> 'cd /opt/stoerungsinfo && docker compose -f compose.yaml \
     -f compose.db.yaml -f compose.public.yaml ps'
 ```
 
+### Absicherung gegen Missbrauch (öffentlich = Angriffsfläche)
+
+Ein Sicherheitsreview dieser Konfiguration hat mehrere Lücken aufgedeckt, die behoben
+sind. Wer die Konfiguration ändert, sollte wissen, warum sie so aussieht:
+
+* **Keine Demo-Konten.** Der importierte Realm bringt DEV-Testnutzer mit dem Passwort
+  `test` mit — einen davon mit Adminrolle. Öffentlich wäre das eine offene Tür zur
+  Versandmaske und zur gesamten Empfängerliste. `configure-realm.sh` löscht alle Konten
+  mit Beispiel-Domain bei **jedem** Deploy und bricht ab, falls eines übrig bleibt.
+* **Allowlist statt Blockliste für `/idp`.** Nur Anmeldung, Registrierung, Protokoll-
+  und Theme-Pfade des Realms `dev` werden durchgereicht; alles andere endet mit 404 —
+  Adminkonsole, Admin-REST-API, `master`-Realm, Metriken, Health. Eine frühere
+  Regex-Blockliste war per Matrix-Parameter (`/idp/admin;x/...`) umgehbar; `^~`-Präfixe
+  erfassen solche Varianten. **Nicht auf eine Blockliste zurückbauen.**
+* **Ratenlimits.** Registrierung und Passwort-Reset lösen je Aufruf eine Mail über das
+  konfigurierte Postfach aus — ohne Bremse ließe sich der Dienst als Mailversender für
+  Fremde missbrauchen und das Tageskontingent des Kontos in Sekunden verbrauchen.
+  Wichtig: `SMTP_MAX_PER_MINUTE` greift hier **nicht**, weil Keycloak über seinen
+  eigenen SMTP-Server sendet, nicht über den Outbox-Worker.
+* **X-Forwarded-For wird gesetzt, nicht angehängt.** Sonst könnte ein Client eine fremde
+  IP voranstellen und damit Brute-Force-Zähler und Ratenlimits auf eine andere Adresse
+  umlenken.
+* **Der API-Container erhält nur seine eigenen Variablen** (keine Datenbank-Root- und
+  Keycloak-Adminpasswörter mehr über `env_file`).
+* **Tageskontingent des Mailkontos**: Meldungen wie `550 5.4.5 Daily user sending limit
+  exceeded` werden als vorübergehend behandelt, damit der Backoff greift statt alle
+  restlichen Empfänger endgültig als fehlgeschlagen zu verbuchen.
+
 ### Offene Punkte für diese Instanz
 
-* **Kein Backup konfiguriert.** `ops/backup.sh` ist auf die Konzern-Variante zugeschnitten
-  (Compose-Dateien ohne `compose.public.yaml`) und läuft hier nicht. Für einen Pilot mit
-  echten Abo-Daten muss ein Dump-Cron eingerichtet werden.
+* **Backup läuft, ist aber nicht automatisiert.** `ops/backup.sh` erkennt das
+  Overlay inzwischen selbst und sichert **beide** Datenbanken (`newsletter` **und**
+  `keycloak` — ohne die zweite gäbe es nach einem Restore keine Konten mehr).
+  `deploy.sh` zieht vor jedem Ausrollen einen Dump. Für Dauerbetrieb noch als Cron
+  einrichten:
+  `0 2 * * * /opt/stoerungsinfo/ops/backup.sh >> /var/log/stoerungsinfo-backup.log 2>&1`
+  und eine Kopie außerhalb der VM ablegen.
+* **`.env` existiert nur auf der VM.** Geht sie verloren, passen die generierten
+  Passwörter nicht mehr zu den Daten in den Volumes (MariaDB übernimmt ein neues
+  Passwort nur bei leerem Datenverzeichnis). Verschlüsselte Kopie anlegen.
+* **Offene Selbstregistrierung** ist eine bewusste Entscheidung. Wer sich registriert,
+  wird Empfänger der Pflicht-Verteiler. Abschalten über die Keycloak-Adminkonsole
+  (SSH-Tunnel) oder `registrationAllowed: False` in `configure-realm.sh`.
 * **Cloudflare-Proxy** steht auf „DNS only". Nach der Zertifikatsausstellung kann auf
   „Proxied" mit *SSL/TLS → Full (strict)* umgestellt werden: versteckt die VM-IP und
-  filtert Angriffe vorab. Die Zertifikatserneuerung funktioniert weiter, weil Cloudflare
-  `/.well-known/acme-challenge/` durchreicht.
+  filtert Angriffe vorab. Die Erneuerung funktioniert weiter, weil Cloudflare
+  `/.well-known/acme-challenge/` durchreicht. Danach in NGINX `set_real_ip_from` mit
+  den Cloudflare-Netzen ergänzen, sonst sehen Ratenlimits nur noch Cloudflare-IPs.
+* **Images werden auf der VM gebaut.** Während des Builds konkurriert `pip install` mit
+  MariaDB und Keycloak um 1,8 GB RAM. Bei Problemen den Stack vor dem Build stoppen
+  oder Images in CI bauen (ADR-0008).
+* **Kein Monitoring.** `/readyz` wird von niemandem abgefragt. Für einen echten Pilot
+  einen externen Check einrichten (Uptime-Dienst oder Cron mit Alarm-Mail).
 
 ## 4. Notfall-Versand bei Systemausfall
 

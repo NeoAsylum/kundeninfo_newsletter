@@ -35,6 +35,33 @@ def load_env() -> dict[str, str]:
     return values
 
 
+def _abort_if_prod() -> None:
+    """Dieses Skript ist nur für die lokale Entwicklung gedacht.
+
+    Auf dem öffentlichen Server liegt eine .env mit APP_ENV=prod und echten
+    Secrets — ein versehentlicher Aufruf (etwa im SSH-Tunnel) würde dort
+    Realm-Einstellungen überschreiben oder Konten anlegen.
+    """
+    import pathlib as _p
+    import sys as _s
+
+    for candidate in (
+        _p.Path.cwd() / ".env",
+        _p.Path(__file__).resolve().parents[1] / ".env",
+    ):
+        if not candidate.exists():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("APP_ENV=") and "prod" in line:
+                print(
+                    f"ABBRUCH: {candidate} enthält APP_ENV=prod. Dieses Skript ist nur für "
+                    "die Entwicklungsumgebung. Für den Server: deploy/vm/create-user.sh "
+                    "bzw. deploy/vm/configure-realm.sh verwenden.",
+                    file=_s.stderr,
+                )
+                raise SystemExit(2)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -42,10 +69,13 @@ def main() -> int:
         action="store_true",
         help="Bestätigungsmail bei Registrierung verlangen (erfordert SMTP in der .env)",
     )
-    parser.add_argument("--no-registration", action="store_true", help="Registrierung abschalten")
+    parser.add_argument(
+        "--no-registration", action="store_true", help="Registrierung abschalten"
+    )
     parser.add_argument("--keycloak-admin", default="admin")
     parser.add_argument("--keycloak-admin-password", default="admin")
     args = parser.parse_args()
+    _abort_if_prod()
 
     env = load_env()
     smtp_host = env.get("SMTP_HOST", "")
@@ -109,20 +139,25 @@ def main() -> int:
             )
             token_response.raise_for_status()
         except httpx.HTTPError as exc:
-            print(f"FEHLER: Keycloak nicht erreichbar oder Login falsch ({exc})", file=sys.stderr)
+            print(
+                f"FEHLER: Keycloak nicht erreichbar oder Login falsch ({exc})",
+                file=sys.stderr,
+            )
             return 1
         headers = {"Authorization": f"Bearer {token_response.json()['access_token']}"}
 
-        update = client.put(f"{KEYCLOAK}/admin/realms/{REALM}", headers=headers, json=updates)
+        update = client.put(
+            f"{KEYCLOAK}/admin/realms/{REALM}", headers=headers, json=updates
+        )
         if update.status_code not in (204, 200):
             print(f"FEHLER ({update.status_code}): {update.text}", file=sys.stderr)
             return 1
 
     print(f"Realm '{REALM}' aktualisiert:")
     print(f"  Selbstregistrierung: {'AN' if registration else 'AUS'}")
-    print(f"  E-Mail als Benutzername: AN")
+    print("  E-Mail als Benutzername: AN")
     print(f"  Bestätigungsmail: {'AN' if args.verify_email else 'AUS'}")
-    print(f"  Passwort-Reset: AN")
+    print("  Passwort-Reset: AN")
     print(f"  SMTP im Realm: {smtp_info}")
     print("\nRegistrieren-Link erscheint auf der Login-Seite:")
     print("  http://localhost:8080/auth/login")

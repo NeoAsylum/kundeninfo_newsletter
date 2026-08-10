@@ -121,5 +121,41 @@ with httpx.Client(timeout=30) as client:
     print(f"  redirectUris: {check['redirectUris']}")
     print(f"  webOrigins:   {check['webOrigins']}")
 
+    # --- Demo-Benutzer entfernen (sicherheitskritisch) ------------------------
+    # Das importierte Realm enthält DEV-Testkonten mit dem Passwort 'test' — eines
+    # davon (admin1@example.corp) mit Adminrolle. Öffentlich erreichbar wäre das
+    # eine offene Tür zur Versandmaske und zur gesamten Empfängerliste. Die Konten
+    # werden deshalb bei jedem Deploy gelöscht; verifyEmail schützt hier nicht, weil
+    # sie bereits als verifiziert importiert werden.
+    removed = 0
+    users = client.get(
+        f"{KC}/admin/realms/{REALM}/users", headers=headers, params={"max": 500}
+    ).json()
+    for user in users:
+        mail = (user.get("email") or "").lower()
+        if mail.endswith("@example.corp") or mail.endswith("@example.com"):
+            delete = client.delete(
+                f"{KC}/admin/realms/{REALM}/users/{user['id']}", headers=headers
+            )
+            if delete.status_code in (204, 200):
+                removed += 1
+                print(f"  Demo-Benutzer entfernt: {mail}")
+            else:
+                print(f"  FEHLER beim Entfernen von {mail}: {delete.status_code}",
+                      file=sys.stderr)
+    print(f"Demo-Benutzer entfernt: {removed}")
+
+    # Absicherung: Es darf kein Konto mit Beispiel-Domain übrig bleiben
+    rest = [
+        u.get("email")
+        for u in client.get(
+            f"{KC}/admin/realms/{REALM}/users", headers=headers, params={"max": 500}
+        ).json()
+        if (u.get("email") or "").lower().endswith(("@example.corp", "@example.com"))
+    ]
+    if rest:
+        print(f"ABBRUCH: Demo-Konten noch vorhanden: {rest}", file=sys.stderr)
+        sys.exit(1)
+
 print(f"Realm konfiguriert für {base}")
 PYTHON

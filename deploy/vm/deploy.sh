@@ -13,6 +13,13 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/opt/stoerungsinfo}"
 PUBLIC_HOST="${PUBLIC_HOST:?PUBLIC_HOST fehlt (z. B. kunden-stoerungs-info.com)}"
+# SMTP-Zugangsdaten beim ERSTEN Lauf erzwingen: SMTP_AUTH_MODE=login ohne
+# User/Passwort lässt die App beim Start mit Validierungsfehler abbrechen.
+if [ ! -f "${REPO_DIR:-/opt/stoerungsinfo}/.env" ] && [ "${SMTP_AUTH_MODE:-login}" = "login" ]; then
+    : "${SMTP_USER:?SMTP_USER fehlt (oder SMTP_AUTH_MODE=none setzen)}"
+    : "${SMTP_PASSWORD:?SMTP_PASSWORD fehlt (oder SMTP_AUTH_MODE=none setzen)}"
+    : "${MAIL_FROM:?MAIL_FROM fehlt (muss zum SMTP-Konto passen)}"
+fi
 # Kein Apostroph in der Fehlermeldung: In ${VAR:?text} behandelt Bash ein
 # einfaches Anführungszeichen als Quoting-Start und bricht mit Syntaxfehler ab.
 ACME_EMAIL="${ACME_EMAIL:?ACME_EMAIL fehlt (Adresse fuer Zertifikats-Ablaufwarnungen)}"
@@ -25,6 +32,9 @@ secret() { openssl rand -base64 36 | tr -d '/+=\n' | head -c 32; }
 # --- 1. Konfiguration ---------------------------------------------------------
 if [ ! -f .env ]; then
     log "Erstelle .env mit frischen Secrets"
+    # Restriktive Rechte VOR dem Schreiben: sonst liegen die Secrets kurzzeitig
+    # mit 0644 auf der Platte (Zeitfenster für jeden lokalen Benutzer).
+    install -m 600 /dev/null .env
     cat > .env <<EOF
 # Öffentlicher Betrieb — erzeugt von deploy/vm/deploy.sh am $(date -Is)
 # Diese Datei enthält Geheimnisse: chmod 600, niemals versionieren.
@@ -56,19 +66,21 @@ KEYCLOAK_ADMIN_PASSWORD=$(secret)
 SESSION_SECRET=$(secret)$(secret)
 SESSION_MAX_AGE=28800
 
-SMTP_HOST=${SMTP_HOST:-mailpit}
+SMTP_HOST="${SMTP_HOST:-mailpit}"
 SMTP_PORT=${SMTP_PORT:-587}
 SMTP_SECURITY=${SMTP_SECURITY:-starttls}
 SMTP_AUTH_MODE=${SMTP_AUTH_MODE:-login}
-SMTP_USER=${SMTP_USER:-}
-SMTP_PASSWORD=${SMTP_PASSWORD:-}
+SMTP_USER="${SMTP_USER:-}"
+# Gequotet: Google zeigt App-Passwörter mit Leerzeichen an — ungequotet würde die
+# Datei beim Einlesen als Befehl interpretiert und der Wert abgeschnitten.
+SMTP_PASSWORD="${SMTP_PASSWORD:-}"
 SMTP_OAUTH_TENANT=consumers
 SMTP_OAUTH_CLIENT_ID=
 SMTP_OAUTH_REFRESH_TOKEN=
 # Werte mit Leerzeichen MUESSEN gequotet sein: deploy.sh liest die Datei per
 # 'source' ein, und Docker Compose entfernt umschliessende Quotes korrekt.
 SMTP_OAUTH_SCOPE="https://outlook.office.com/SMTP.Send offline_access"
-MAIL_FROM=${MAIL_FROM:-}
+MAIL_FROM="${MAIL_FROM:-}"
 MAIL_FROM_NAME="${MAIL_FROM_NAME:-Störungsinfo}"
 MAIL_REDIRECT_TO=${MAIL_REDIRECT_TO:-}
 # Gmail drosselt bei ~500/Tag — defensive Rate begrenzt den Schaden bei Missbrauch
@@ -125,8 +137,25 @@ docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml exec -T
         FLUSH PRIVILEGES;"
 echo "    Datenbank 'keycloak' bereit"
 
+log "Sicherung vor dem Ausrollen"
+# Migrationen laufen beim Start des api-Containers automatisch. Vorher ein Dump,
+# damit ein fehlgeschlagener Schemawechsel nicht ohne Rückfahrkarte dasteht.
+if $COMPOSE ps --status running --quiet api 2>/dev/null | grep -q .; then
+    if bash "$(dirname "$0")/../../ops/backup.sh"; then
+        echo "    Sicherung erstellt"
+    else
+        echo "    WARNUNG: Sicherung fehlgeschlagen — Ausrollen wird fortgesetzt" >&2
+    fi
+else
+    echo "    Erstinstallation, keine Sicherung nötig"
+fi
+
 log "Restliche Container starten"
 $COMPOSE up -d --build
+
+log "Aufräumen (Platte)"
+docker image prune -f >/dev/null 2>&1 || true
+docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 || true
 
 # --- 3. Zertifikat ------------------------------------------------------------
 CERT_PATH="/etc/letsencrypt/live/${PUBLIC_HOST}/fullchain.pem"
@@ -153,15 +182,29 @@ fi
 
 # --- 4. Keycloak-Realm für die öffentliche Adresse -------------------------------
 log "Warte auf Keycloak"
+# Im Compose-Netz prüfen, nicht über localhost:80 — der HTTP-Serverblock leitet
+# alles auf HTTPS um, ein 301 wäre kein Beweis für einen bereiten Keycloak.
+KC_READY=false
 for i in $(seq 1 60); do
-    if curl -fsS "http://localhost/idp/realms/dev/.well-known/openid-configuration" \
-        >/dev/null 2>&1 || curl -fsSk \
-        "https://${PUBLIC_HOST}/idp/realms/dev/.well-known/openid-configuration" \
-        >/dev/null 2>&1; then
+    if $COMPOSE exec -T api python -c "
+import sys, httpx
+try:
+    r = httpx.get('http://keycloak:8081/idp/realms/dev/.well-known/openid-configuration',
+                  timeout=5)
+    sys.exit(0 if r.status_code == 200 else 1)
+except Exception:
+    sys.exit(1)
+" >/dev/null 2>&1; then
+        KC_READY=true
+        echo "    Keycloak bereit nach $((i * 5))s"
         break
     fi
     sleep 5
 done
+if [ "$KC_READY" != "true" ]; then
+    echo "ABBRUCH: Keycloak wurde nicht bereit — 'docker compose logs keycloak' prüfen." >&2
+    exit 1
+fi
 
 bash "$(dirname "$0")/configure-realm.sh"
 

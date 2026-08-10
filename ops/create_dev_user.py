@@ -36,17 +36,47 @@ def admin_token(client: httpx.Client, user: str, password: str) -> str:
     return response.json()["access_token"]
 
 
+def _abort_if_prod() -> None:
+    """Dieses Skript ist nur für die lokale Entwicklung gedacht.
+
+    Auf dem öffentlichen Server liegt eine .env mit APP_ENV=prod und echten
+    Secrets — ein versehentlicher Aufruf (etwa im SSH-Tunnel) würde dort
+    Realm-Einstellungen überschreiben oder Konten anlegen.
+    """
+    import pathlib as _p
+    import sys as _s
+
+    for candidate in (
+        _p.Path.cwd() / ".env",
+        _p.Path(__file__).resolve().parents[1] / ".env",
+    ):
+        if not candidate.exists():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("APP_ENV=") and "prod" in line:
+                print(
+                    f"ABBRUCH: {candidate} enthält APP_ENV=prod. Dieses Skript ist nur für "
+                    "die Entwicklungsumgebung. Für den Server: deploy/vm/create-user.sh "
+                    "bzw. deploy/vm/configure-realm.sh verwenden.",
+                    file=_s.stderr,
+                )
+                raise SystemExit(2)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--email", required=True)
     parser.add_argument("--username", default=None, help="Default: Teil vor dem @")
     parser.add_argument("--first-name", default="")
     parser.add_argument("--last-name", default="")
-    parser.add_argument("--admin", action="store_true", help=f"Realm-Rolle {ADMIN_ROLE}")
+    parser.add_argument(
+        "--admin", action="store_true", help=f"Realm-Rolle {ADMIN_ROLE}"
+    )
     parser.add_argument("--password", default=None)
     parser.add_argument("--keycloak-admin", default="admin")
     parser.add_argument("--keycloak-admin-password", default="admin")
     args = parser.parse_args()
+    _abort_if_prod()
 
     username = args.username or args.email.split("@")[0]
     password = args.password or secrets.token_urlsafe(12)
@@ -54,9 +84,13 @@ def main() -> int:
 
     with httpx.Client(timeout=30) as client:
         try:
-            token = admin_token(client, args.keycloak_admin, args.keycloak_admin_password)
+            token = admin_token(
+                client, args.keycloak_admin, args.keycloak_admin_password
+            )
         except httpx.HTTPError as exc:
-            print(f"FEHLER: Keycloak-Admin-Login fehlgeschlagen ({exc}).", file=sys.stderr)
+            print(
+                f"FEHLER: Keycloak-Admin-Login fehlgeschlagen ({exc}).", file=sys.stderr
+            )
             print("Läuft der DEV-Stack? (make dev)", file=sys.stderr)
             return 1
         headers = {"Authorization": f"Bearer {token}"}
@@ -71,7 +105,9 @@ def main() -> int:
             # Tatsächlichen Anmeldenamen übernehmen — er kann vom aus der E-Mail
             # abgeleiteten abweichen, und ein falsch angezeigter Name führt in die Irre.
             username = existing[0]["username"]
-            print(f"Benutzer existiert bereits (id={user_id}) — aktualisiere Passwort/Rolle")
+            print(
+                f"Benutzer existiert bereits (id={user_id}) — aktualisiere Passwort/Rolle"
+            )
         else:
             create = client.post(
                 f"{KEYCLOAK}/admin/realms/{REALM}/users",
@@ -86,7 +122,10 @@ def main() -> int:
                 },
             )
             if create.status_code not in (201, 204):
-                print(f"FEHLER beim Anlegen ({create.status_code}): {create.text}", file=sys.stderr)
+                print(
+                    f"FEHLER beim Anlegen ({create.status_code}): {create.text}",
+                    file=sys.stderr,
+                )
                 return 1
             user_id = create.headers["location"].rsplit("/", 1)[-1]
             print(f"Benutzer angelegt: {username} <{args.email}> (id={user_id})")
@@ -97,7 +136,10 @@ def main() -> int:
             json={"type": "password", "value": password, "temporary": must_change},
         )
         if reset.status_code not in (204, 200):
-            print(f"FEHLER beim Passwort setzen ({reset.status_code}): {reset.text}", file=sys.stderr)
+            print(
+                f"FEHLER beim Passwort setzen ({reset.status_code}): {reset.text}",
+                file=sys.stderr,
+            )
             return 1
 
         # requiredActions explizit setzen: Ein früheres temporäres Passwort hinterlässt
@@ -122,7 +164,10 @@ def main() -> int:
                 json=[{"id": role.json()["id"], "name": ADMIN_ROLE}],
             )
             if assign.status_code not in (204, 200):
-                print(f"FEHLER bei Rollenzuweisung ({assign.status_code})", file=sys.stderr)
+                print(
+                    f"FEHLER bei Rollenzuweisung ({assign.status_code})",
+                    file=sys.stderr,
+                )
                 return 1
             print(f"Rolle zugewiesen: {ADMIN_ROLE}")
 
@@ -132,7 +177,7 @@ def main() -> int:
     print(f"  Passwort: {password}")
     if must_change:
         print("  → muss beim ersten Login geändert werden")
-    print(f"  Portal:   http://localhost:8080/abos.html")
+    print("  Portal:   http://localhost:8080/abos.html")
     print("=" * 62)
     return 0
 
