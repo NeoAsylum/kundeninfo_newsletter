@@ -1,0 +1,39 @@
+# Leitplanken für KI-Sessions in diesem Repo
+
+**Projekt:** Self-Service-Portal „Störungsinfos“ — ersetzt händisch gepflegte Outlook-Verteiler
+durch DB-gepflegte Abos; Versand von Störungs-/Entwarnungsmails an bis zu ~5.000 Empfänger.
+Maßgeblich: [docs/mvp-umsetzungsplan-stoerungsinfos.md](docs/mvp-umsetzungsplan-stoerungsinfos.md)
+und die ADRs in [docs/adr/](docs/adr/).
+
+## Pflichten (Definition of Done gilt pro Change)
+
+- `make check` grün vor Abschluss (Windows: `.\make.ps1 check`); Tests für neue Logik ergänzen.
+- Doku mitpflegen: README, `docs/ARCHITECTURE.md` (inkl. **Egress-/Ingress-Matrix bei jeder
+  neuen Netzverbindung**), `docs/RUNBOOK.md` bei Betriebsänderungen, `CHANGELOG.md` (Unreleased).
+- `.env.example` ist die **einzige** Konfig-Wahrheit — bei jedem neuen Settings-Feld ergänzen
+  (CI-Gate: `backend/scripts/check_env_example.py`).
+- Architekturentscheidungen als ADR dokumentieren (`docs/adr/0000-template.md`).
+
+## Verbote
+
+- **Keine neue Infrastrukturkomponente** (Broker, Cache, zweiter Store, Framework) ohne ADR
+  und explizite Rückfrage — Einfachheit ist Anforderung des Auftraggebers.
+- **`uvicorn --workers 1` nicht ändern** (ADR-0004): Outbox-Worker setzt Single-Process voraus;
+  mehrere Prozesse erzeugen Massen-Doppelversand.
+- **Migrationen nur additiv** (ADR-0011).
+- **Kein Tracking**: keine Lese-/Klick-Auswertung, keine personalisierten Mail-Links, keine
+  Empfänger-Mailadressen in Logs (ADR-0014, Betriebsrats-Prinzip).
+- **Keine Inline-Skripte/-Handler im Frontend** — CSP ist `script-src 'self'` (ADR-0020);
+  Seiten-JS gehört in eigene Dateien (`abos.js`, `versand.js`, `app.js`).
+- **Keine Secrets ins Repo**; reale `.env` nie committen.
+
+## Kontext, der Fehlentscheidungen verhindert
+
+- Regulatorik (DSGVO/Betriebsrat/Retention) und Firewall-Details sind **bewusst offen** —
+  nicht raten, sondern konfigurierbar halten; offene Punkte gehören in `docs/open-questions.md`.
+- Pflicht-Topics sind **implizit** (keine subscriptions-Zeilen, ADR-0009); Topic-Pflege läuft
+  per RUNBOOK-SQL, es gibt absichtlich kein Admin-Topic-CRUD (ADR-0016).
+- DEV-Stack läuft ohne Bind-Mounts (Docker-Desktop/OneDrive-Falle); Live-Reload nur über
+  `compose.dev.reload.yaml`. Frontend/Realm sind in Images eingebacken → nach Änderungen
+  `make dev` (baut neu).
+- Windows-Entwicklung: `make` existiert nicht — `.\make.ps1 <target>` verwenden.
