@@ -7,7 +7,18 @@ server {
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
-    return 421;
+
+    # Der Container-Healthcheck ruft http://127.0.0.1/nginx-health auf — sein
+    # Host-Header ist die IP, nicht die Domain, er landet also hier. Ohne diese
+    # Location gälte der Container dauerhaft als ungesund.
+    location = /nginx-health {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 421;
+    }
 }
 
 # HTTP für die eigene Domain: ausschließlich ACME-Challenge, Health-Stub und
