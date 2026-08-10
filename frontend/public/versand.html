@@ -239,8 +239,14 @@ placeholder="Sehr geehrte Damen und Herren,&#10;&#10;aktuell kommt es zu Einschr
       const me = await App.initTopbar("versand");
       if (!me.roles.includes("admin")) {
         document.querySelector(".send-grid").innerHTML =
-          '<div class="card empty-state">Für die Versand-Maske fehlt dir die Berechtigung ' +
-          "(Rolle „stoerungsinfo-admin“).</div>";
+          '<div class="card empty-state">' +
+          '<h3>Für die Versand-Maske fehlt dir die Berechtigung</h3>' +
+          '<p style="margin: 0.75rem 0 1.25rem 0; color: #64748b;">Du bist als <strong>' + App.escapeHtml(me.email) + '</strong> (Standard-Mitarbeiter) angemeldet. ' +
+          'Um Störungsmeldungen zu versenden, wird die Rolle „stoerungsinfo-admin“ benötigt.</p>' +
+          '<div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">' +
+          '<a href="/auth/login?prompt=login&next=/versand.html" class="btn btn-primary">Als Admin anmelden (admin1)</a>' +
+          '<a href="/auth/logout" class="btn">Abmelden</a>' +
+          '</div></div>';
         el("history-body").innerHTML =
           '<tr><td colspan="6" class="empty-state">Keine Berechtigung.</td></tr>';
         return;

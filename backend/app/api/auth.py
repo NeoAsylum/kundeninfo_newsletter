@@ -30,10 +30,13 @@ def _safe_next(next_url: str | None) -> str:
 
 @router.get("/auth/login")
 async def login(
-    request: Request, settings: SettingsDep, next: str | None = None
+    request: Request,
+    settings: SettingsDep,
+    next: str | None = None,
+    prompt: str | None = None,
 ) -> RedirectResponse:
     oidc = request.app.state.oidc
-    url, state_payload = await oidc.build_authorize_redirect()
+    url, state_payload = await oidc.build_authorize_redirect(prompt=prompt)
     state_payload["next"] = _safe_next(next)
     response = RedirectResponse(url, status_code=302)
     response.set_cookie(
@@ -100,8 +103,14 @@ async def callback(
 
 
 @router.get("/auth/logout")
-async def logout(settings: SettingsDep) -> RedirectResponse:
-    # MVP: lokale Session beenden; IdP-Logout-Propagation ist Erweiterungspunkt (Plan 5.3)
-    response = RedirectResponse("/", status_code=302)
+async def logout(request: Request, settings: SettingsDep) -> RedirectResponse:
+    oidc = request.app.state.oidc
+    target_url = settings.public_base_url + "/"
+    try:
+        logout_url = await oidc.build_end_session_url(post_logout_redirect_uri=target_url)
+    except Exception:
+        logout_url = None
+
+    response = RedirectResponse(logout_url or target_url, status_code=302)
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response

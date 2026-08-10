@@ -50,7 +50,7 @@ async def test_healthz_offen(client):
 async def test_auth_logout(client):
     response = await client.get("/auth/logout", follow_redirects=False)
     assert response.status_code == 302
-    assert response.headers["location"] == "/"
+    assert response.headers["location"].endswith("/")
 
 
 async def test_auth_callback_idp_error(client):

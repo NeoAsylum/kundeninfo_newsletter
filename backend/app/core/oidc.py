@@ -91,7 +91,7 @@ class OidcClient:
         self._jwks_at = time.time()
         return self._jwks
 
-    async def build_authorize_redirect(self) -> tuple[str, dict]:
+    async def build_authorize_redirect(self, prompt: str | None = None) -> tuple[str, dict]:
         """Liefert (Authorize-URL fürs Browser-Redirect, State-Payload fürs State-Cookie)."""
         metadata = await self._get_metadata()
         state = secrets.token_urlsafe(24)
@@ -112,8 +112,23 @@ class OidcClient:
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         }
+        if prompt:
+            params["prompt"] = prompt
         url = metadata["authorization_endpoint"] + "?" + urlencode(params)
         return url, {"state": state, "nonce": nonce, "verifier": verifier}
+
+    async def build_end_session_url(
+        self, post_logout_redirect_uri: str | None = None
+    ) -> str | None:
+        """Erzeugt die IdP-Logout-URL (end_session_endpoint) für vollständigen SSO-Logout."""
+        metadata = await self._get_metadata()
+        end_session = metadata.get("end_session_endpoint")
+        if not end_session:
+            return None
+        params = {"client_id": self._s.oidc_client_id}
+        if post_logout_redirect_uri:
+            params["post_logout_redirect_uri"] = post_logout_redirect_uri
+        return end_session + "?" + urlencode(params)
 
     async def exchange_code(self, code: str, verifier: str, nonce: str) -> dict:
         metadata = await self._get_metadata()

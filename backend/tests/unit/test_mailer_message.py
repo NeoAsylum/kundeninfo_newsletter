@@ -39,7 +39,6 @@ async def test_mailer_open_ssl_and_auth(settings, monkeypatch):
         async def quit(self):
             pass
 
-    dummy = DummySMTP()
     monkeypatch.setattr("aiosmtplib.SMTP", lambda **kwargs: DummySMTP(**kwargs))
 
     settings.smtp_security = "ssl"
