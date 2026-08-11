@@ -57,8 +57,11 @@ OIDC_INTERNAL_BASE_URL=http://keycloak:8081
 OIDC_CLIENT_ID=newsletter-dev
 OIDC_CLIENT_SECRET=$(secret)
 OIDC_EMAIL_CLAIM=email
-OIDC_ROLES_CLAIM=realm_access.roles
-ADMIN_ROLE_VALUE=stoerungsinfo-admin
+
+# Erster Admin: Diese Adresse bekommt beim Login das Adminrecht, solange es keinen
+# aktiven Admin gibt (ADR-0022). Danach wirkungslos — Rechte vergibt die Maske
+# "Rollen". Ohne Wert bleibt die Instanz ohne Admin (RUNBOOK 6b).
+ADMIN_BOOTSTRAP_EMAILS="${ADMIN_BOOTSTRAP_EMAILS:-${ACME_EMAIL:-}}"
 
 KEYCLOAK_ADMIN=kcadmin
 KEYCLOAK_ADMIN_PASSWORD=$(secret)
@@ -112,6 +115,19 @@ else
         fi
         echo "    ${key} aktualisiert"
     done
+    # Neue Konfigurationsschlüssel nachtragen, ohne bestehende Werte anzufassen.
+    # Ohne diesen Schritt bekäme eine bereits laufende Instanz ADMIN_BOOTSTRAP_EMAILS
+    # nie — und damit fehlte der Notausgang, falls Migration 0003 niemanden als Admin
+    # übernimmt (sie erkennt nur Konten, die belegbar als Admin gehandelt haben).
+    if ! grep -q '^ADMIN_BOOTSTRAP_EMAILS=' .env; then
+        printf '
+# Ergänzt von deploy.sh: erster Admin bzw. Ausweg aus einer Aussperrung
+' >> .env
+        printf '# (wirkt nur, solange kein aktiver Admin existiert — ADR-0022, RUNBOOK 6b)
+' >> .env
+        echo "ADMIN_BOOTSTRAP_EMAILS=\"${ADMIN_BOOTSTRAP_EMAILS:-${ACME_EMAIL}}\"" >> .env
+        echo "    ADMIN_BOOTSTRAP_EMAILS ergaenzt"
+    fi
 fi
 set -a; . ./.env; set +a
 

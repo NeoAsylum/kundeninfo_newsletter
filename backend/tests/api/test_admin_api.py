@@ -7,7 +7,7 @@ ADMIN = ("sub-admin", "admin1@example.corp")
 
 async def _setup_users(app, make_user):
     """Admin + 2 Abonnenten (kap) + 1 inaktiver Abonnent + 1 ohne Abo."""
-    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin")
+    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin", admin=True)
     u1 = await make_user(sub="s1", email="mia@example.corp")
     u2 = await make_user(sub="s2", email="max@example.corp")
     u3 = await make_user(sub="s3", email="inaktiv@example.corp", active=False)
@@ -29,7 +29,7 @@ async def test_admin_endpunkte_fuer_employee_403(client, auth_headers, make_user
 
 async def test_recipient_count_abo_topic(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.get("/api/v1/admin/topics/kap/recipient-count", headers=headers)
     assert response.status_code == 200
     assert response.json()["count"] == 2  # Inaktive zählen nicht
@@ -37,7 +37,7 @@ async def test_recipient_count_abo_topic(client, app, auth_headers, make_user):
 
 async def test_recipient_count_pflicht_topic_alle_aktiven(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.get(
         "/api/v1/admin/topics/zentrale-stoerungen/recipient-count", headers=headers
     )
@@ -46,7 +46,7 @@ async def test_recipient_count_pflicht_topic_alle_aktiven(client, app, auth_head
 
 async def test_preview_rendert_echtes_template(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.post(
         "/api/v1/admin/dispatches/preview",
         headers=headers,
@@ -66,7 +66,7 @@ async def test_preview_rendert_echtes_template(client, app, auth_headers, make_u
 
 async def test_versand_anlegen_friert_empfaenger_ein(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.post(
         "/api/v1/admin/dispatches",
         headers=headers,
@@ -97,8 +97,8 @@ async def test_versand_anlegen_friert_empfaenger_ein(client, app, auth_headers, 
 
 
 async def test_versand_ohne_empfaenger_422(client, app, auth_headers, make_user):
-    await make_user(sub=ADMIN[0], email=ADMIN[1])
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
+    headers = auth_headers(*ADMIN)
     response = await client.post(
         "/api/v1/admin/dispatches",
         headers=headers,
@@ -110,7 +110,7 @@ async def test_versand_ohne_empfaenger_422(client, app, auth_headers, make_user)
 
 async def test_titel_laenge_validiert(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.post(
         "/api/v1/admin/dispatches",
         headers=headers,
@@ -122,7 +122,7 @@ async def test_titel_laenge_validiert(client, app, auth_headers, make_user):
 
 async def test_unbekannter_schweregrad_422(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.post(
         "/api/v1/admin/dispatches",
         headers=headers,
@@ -133,7 +133,7 @@ async def test_unbekannter_schweregrad_422(client, app, auth_headers, make_user)
 
 async def test_historie_und_detail(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     created = (
         await client.post(
             "/api/v1/admin/dispatches",
@@ -162,7 +162,7 @@ async def test_historie_und_detail(client, app, auth_headers, make_user):
 
 async def test_admin_unbekanntes_topic_404(client, app, auth_headers, make_user):
     await _setup_users(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
 
     res1 = await client.get("/api/v1/admin/topics/gibts-nicht/recipient-count", headers=headers)
     assert res1.status_code == 404
@@ -188,8 +188,8 @@ async def test_admin_unbekanntes_topic_404(client, app, auth_headers, make_user)
 async def test_admin_zugriff_endet_mit_deaktiviertem_user(client, app, auth_headers, make_user):
     """Offboarding: Admin-Cookie allein reicht nicht — der DB-User muss
     aktiv sein, sonst 401 SESSION_STALE auch auf Lese-Endpunkten."""
-    await make_user(sub=ADMIN[0], email=ADMIN[1], active=False)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    await make_user(sub=ADMIN[0], email=ADMIN[1], active=False, admin=True)
+    headers = auth_headers(*ADMIN)
     response = await client.get("/api/v1/admin/topics/kap/recipient-count", headers=headers)
     assert response.status_code == 401
     assert response.json()["code"] == "SESSION_STALE"
@@ -209,7 +209,7 @@ async def test_betreff_ueberlauf_422_statt_500(client, app, auth_headers, make_u
             {"name": "L" * 120},
         )
         await session.commit()
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     try:
         response = await client.post(
             "/api/v1/admin/dispatches/preview",

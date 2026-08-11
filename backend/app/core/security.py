@@ -22,14 +22,14 @@ STATE_MAX_AGE = 600  # 10 min für den Login-Roundtrip
 
 @dataclass(frozen=True)
 class Identity:
+    """Wer angemeldet ist — bewusst OHNE Berechtigungen. Adminrechte stehen in der
+    Datenbank und werden bei jeder Anfrage dort geprüft (ADR-0022); eine Rolle im
+    Cookie wäre eine zweite, nie widerrufbare Wahrheit."""
+
     sub: str
     email: str
     display_name: str | None = None
     roles: list[str] = field(default_factory=list)
-
-    @property
-    def is_admin(self) -> bool:
-        return "admin" in self.roles
 
 
 def _fernet(secret: str) -> Fernet:

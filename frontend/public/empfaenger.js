@@ -54,6 +54,7 @@ function renderRow(user) {
 async function onSubscribedToggle(user, checkbox) {
   const topic = selectedTopic;
   const subscribe = checkbox.checked;
+  const hatteFokus = document.activeElement === checkbox;
   checkbox.disabled = true;
   try {
     await App.requestJson(
@@ -71,7 +72,12 @@ async function onSubscribedToggle(user, checkbox) {
     App.toast(error.message, true);
   } finally {
     checkbox.disabled = false;
-    checkbox.focus(); // disabled wirft den Tastaturfokus auf <body>
+    // Nur zurückholen, wenn `disabled` den Fokus wirklich auf <body> geworfen hat: Wer
+    // inzwischen ins Filterfeld getippt hat, verlöre ihn sonst mitten im Wort — und ein
+    // Leerzeichen würde die dann fokussierte Checkbox umschalten.
+    if (hatteFokus && (!document.activeElement || document.activeElement === document.body)) {
+      checkbox.focus();
+    }
   }
 }
 

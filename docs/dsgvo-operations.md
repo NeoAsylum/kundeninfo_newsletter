@@ -12,6 +12,7 @@ Export aller zu einer E-Mail-Adresse gespeicherten Daten als JSON:
 -- Nutzerstamm & Abos abfragen
 SELECT 
     u.id, u.oidc_sub, u.email, u.display_name, u.created_at, u.last_login_at,
+    u.is_active, u.is_admin,
     GROUP_CONCAT(s.topic_id) AS active_subscriptions
 FROM users u
 LEFT JOIN subscriptions s ON u.id = s.user_id
@@ -19,10 +20,23 @@ WHERE u.email = 'betroffener@example.corp'
 GROUP BY u.id;
 
 -- Versand-Empfängerhistorie abfragen
-SELECT dr.dispatch_id, dr.status, dr.attempts, dr.sent_at
+SELECT dr.dispatch_id, dr.status, dr.attempts, dr.sent_at, dr.last_error
 FROM dispatch_recipients dr
 WHERE dr.email = 'betroffener@example.corp';
+
+-- Audit-Einträge mit Personenbezug: als Handelnder (actor_email) und als Betroffener
+-- eines Admin-Eingriffs (detail.email, seit ADR-0022 auch admin_granted/admin_revoked).
+-- Dieselbe Abfrage steht in Abschnitt 2 Step 4 — Auskunft und Löschung müssen dieselben
+-- Tabellen abdecken, sonst ist die Auskunft unrichtig.
+SELECT id, ts, action, actor_email, detail FROM audit_log
+WHERE actor_email = 'betroffener@example.corp'
+   OR JSON_EXTRACT(detail, '$.email') = 'betroffener@example.corp';
 ```
+
+Vollständigkeit: Damit sind alle Tabellen erfasst, die einen Personenbezug tragen —
+`users` (inklusive `is_admin`, seit [ADR-0022](adr/0022-adminrechte-im-portal.md)),
+`subscriptions`, `dispatch_recipients` und `audit_log`. `dispatches` enthält nur die
+Meldung selbst und die id des Erstellers, `topics` keine personenbezogenen Daten.
 
 ---
 
@@ -35,13 +49,34 @@ Nutzerkonto anonymisieren bzw. löschen:
 DELETE FROM subscriptions 
 WHERE user_id = (SELECT id FROM users WHERE email = 'betroffener@example.corp');
 
--- Step 2: Empfängerhistorie anonymisieren (E-Mail entfernen)
+-- Step 2: Empfängerhistorie anonymisieren (E-Mail entfernen). last_error MUSS mit:
+-- dort steht die Fehlerantwort des Mailservers, die die Adresse üblicherweise
+-- wiederholt ("550 ... <adresse> unknown") — sonst bleibt sie nach der Löschung stehen.
 UPDATE dispatch_recipients 
-SET email = 'deleted-user@anonymized.local', user_id = NULL
+SET email = 'deleted-user@anonymized.local', user_id = NULL, last_error = NULL
 WHERE email = 'betroffener@example.corp';
 
--- Step 3: Nutzerkonto löschen (subscriptions folgen per ON DELETE CASCADE)
+-- Step 3a: Hat die Person je eine Meldung VERSENDET? dispatches.created_by_user_id
+-- ist ein Fremdschlüssel mit ON DELETE RESTRICT (die Versandhistorie ist
+-- unveränderlich) — bei einem Zähler > 0 scheitert Step 3b mit MariaDB-Fehler 1451.
+SELECT COUNT(*) FROM dispatches d JOIN users u ON u.id = d.created_by_user_id
+WHERE u.email = 'betroffener@example.corp';
+
+-- Step 3b: NUR bei Zähler 0 — Konto löschen (subscriptions folgen per CASCADE).
 DELETE FROM users WHERE email = 'betroffener@example.corp';
+
+-- Step 3c: Bei Zähler > 0 (Problemmanagement-Mitarbeiter) bleibt die Zeile als Anker
+-- der Historie bestehen und wird stattdessen anonymisiert. Das ist keine Umgehung von
+-- Art. 17: Die Zuordnung „wer hat diese Meldung verantwortet" ist eine
+-- Rechenschaftspflicht-Aufzeichnung. Mit dem DSB abstimmen und im Change vermerken.
+UPDATE users SET
+    email = CONCAT('deleted-', id, '@anonymized.local'),
+    display_name = NULL,
+    oidc_sub = CONCAT('deleted-', id),
+    is_active = 0,
+    is_admin = 0,
+    last_login_at = NULL
+WHERE email = 'betroffener@example.corp';
 
 -- Step 4: audit_log prüfen — es speichert die E-Mail des HANDELNDEN (actor_email)
 -- und im JSON-Detail die des betroffenen Empfängers. Beides ist eine

@@ -4,7 +4,11 @@ Nur für die Entwicklungs-/Testumgebung: In PROD kommen Benutzer und Rollen
 ausschließlich aus dem Konzern-IdP (ADR-0013). Nötig, weil der DEV-Keycloak
 seinen Datenstand bei Neuaufbau verliert.
 
-    python ops/create_dev_user.py --email <adresse> [--admin] [--password <pw>]
+    python ops/create_dev_user.py --email <adresse> [--password <pw>]
+
+Legt eine ANMELDUNG an, keine Berechtigung: Adminrechte vergibt das Portal selbst
+(Maske „Rollen", ADR-0022). Den ersten Admin holt ADMIN_BOOTSTRAP_EMAILS aus der
+.env — im DEV-Standard ist das admin1@example.corp.
 
 Ohne --password wird ein Zufallspasswort erzeugt und ausgegeben; es muss beim
 ersten Login geändert werden.
@@ -15,7 +19,7 @@ import secrets
 import sys
 
 import httpx
-from _dev_keycloak import ADMIN_ROLE, KEYCLOAK, REALM, abort_if_prod, admin_headers
+from _dev_keycloak import KEYCLOAK, REALM, abort_if_prod, admin_headers
 
 
 def main() -> int:
@@ -24,9 +28,6 @@ def main() -> int:
     parser.add_argument("--username", default=None, help="Default: Teil vor dem @")
     parser.add_argument("--first-name", default="")
     parser.add_argument("--last-name", default="")
-    parser.add_argument(
-        "--admin", action="store_true", help=f"Realm-Rolle {ADMIN_ROLE}"
-    )
     parser.add_argument("--password", default=None)
     parser.add_argument("--keycloak-admin", default="admin")
     parser.add_argument("--keycloak-admin-password", default="admin")
@@ -105,26 +106,6 @@ def main() -> int:
             json={"requiredActions": ["UPDATE_PASSWORD"] if must_change else []},
         )
 
-        if args.admin:
-            role = client.get(
-                f"{KEYCLOAK}/admin/realms/{REALM}/roles/{ADMIN_ROLE}", headers=headers
-            )
-            if role.status_code != 200:
-                print(f"FEHLER: Rolle {ADMIN_ROLE} nicht gefunden", file=sys.stderr)
-                return 1
-            assign = client.post(
-                f"{KEYCLOAK}/admin/realms/{REALM}/users/{user_id}/role-mappings/realm",
-                headers=headers,
-                json=[{"id": role.json()["id"], "name": ADMIN_ROLE}],
-            )
-            if assign.status_code not in (204, 200):
-                print(
-                    f"FEHLER bei Rollenzuweisung ({assign.status_code})",
-                    file=sys.stderr,
-                )
-                return 1
-            print(f"Rolle zugewiesen: {ADMIN_ROLE}")
-
     print()
     print("=" * 62)
     print(f"  Login:    {username}   (oder {args.email})")
@@ -132,6 +113,7 @@ def main() -> int:
     if must_change:
         print("  → muss beim ersten Login geändert werden")
     print("  Portal:   http://localhost:8080/abos.html")
+    print("  Rechte:   Mitarbeiter. Adminrechte in der Maske „Rollen“ vergeben.")
     print("=" * 62)
     return 0
 

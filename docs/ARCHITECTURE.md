@@ -93,8 +93,9 @@ Durchgesetzt wird das in einer eigenen iptables-Kette innerhalb von `DOCKER-USER
 
 ## 5. Tragende Entscheidungen
 
-Vollständig in [adr/](adr/); die drei mit der größten Wirkung auf den Betrieb:
+Vollständig in [adr/](adr/); die mit der größten Wirkung auf den Betrieb:
 
 * **DB-Cutover ist reine Konfiguration**: Der Wechsel von der lokalen Docker-DB auf die externe DB-Infrastruktur erfolgt über `DATABASE_URL` und das Weglassen von `compose.db.yaml`.
 * **Null-Tracking** ([ADR-0014](adr/0014-null-tracking-und-retention.md)): keine Zählpixel, kein Klick-Tracking, keine Lesebestätigungen in versendeten Mails.
-* **Topic-Pflege per SQL** ([ADR-0016](adr/0016-topic-pflege-ohne-admin-crud.md)): Verteiler werden über eine dokumentierte RUNBOOK-Prozedur gepflegt, nicht über eine Admin-CRUD-Oberfläche.
+* **Verteiler-Pflege in der Oberfläche** ([ADR-0024](adr/0024-verteiler-crud-in-der-oberflaeche.md), löst ADR-0016 ab): Anlegen, Umbenennen, Deaktivieren und Löschen laufen über die Admin-Maske; der Slug bleibt unveränderlich und Verteiler mit Versandhistorie sind nur deaktivierbar. Das SQL aus [RUNBOOK 6](RUNBOOK.md) bleibt als Notfallweg — ohne Audit-Eintrag.
+* **Adminrechte gehören dem Portal** ([ADR-0022](adr/0022-adminrechte-im-portal.md)): allein `users.is_admin`, bei **jeder** Anfrage aus der Datenbank gelesen — ein Entzug wirkt daher sofort statt erst mit dem Cookie-Ablauf. Rollen aus dem IdP-Token werden nicht ausgewertet; der IdP liefert Identität, das Portal Berechtigung. Kehrseite für den Betrieb: Eine Deaktivierung im Verzeichnisdienst entzieht das Adminrecht nicht von selbst.

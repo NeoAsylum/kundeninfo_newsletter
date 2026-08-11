@@ -34,7 +34,10 @@ Planungsstand — bei Widersprüchen gewinnen Code und ADRs.
 - Regulatorik (DSGVO/Betriebsrat/Retention) und Firewall-Details sind **bewusst offen** —
   nicht raten, sondern konfigurierbar halten; offene Punkte gehören in `docs/open-questions.md`.
 - Pflicht-Topics sind **implizit** (keine subscriptions-Zeilen, ADR-0009); Topic-Pflege läuft
-  per RUNBOOK-SQL, es gibt absichtlich kein Admin-Topic-CRUD (ADR-0016).
+  über die Admin-Maske (ADR-0024, löst ADR-0016 ab), das RUNBOOK-SQL ist nur noch Notfallweg.
+- Adminrecht steht **nur** in `users.is_admin` (ADR-0022, löst ADR-0013 dafür ab); Rollen
+  aus dem IdP-Token werden nicht gelesen. `require_admin` prüft je Anfrage die DB, ein
+  Entzug wirkt sofort. Ersten Admin/Aussperrung: `ADMIN_BOOTSTRAP_EMAILS`, RUNBOOK 6b.
 - DEV-Stack läuft ohne Bind-Mounts (Docker-Desktop/OneDrive-Falle), also kein Live-Reload.
   Code, Frontend und Realm sind in Images eingebacken → nach Änderungen `make dev`
   (baut neu, dauert Sekunden).

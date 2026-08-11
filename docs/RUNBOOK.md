@@ -222,8 +222,11 @@ ssh root@<host> "(crontab -l 2>/dev/null; echo '17 3,15 * * * \
     /opt/stoerungsinfo/deploy/vm/renew-cert.sh >> /var/log/stoerungsinfo-cert.log 2>&1') \
     | crontab -"
 
-# 6. Benutzer anlegen (Admin für die Versand-Maske)
-ssh root@<host> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --admin'
+# 6. Benutzer anlegen. Adminrechte kommen NICHT von hier, sondern aus dem Portal:
+#    Die in ADMIN_BOOTSTRAP_EMAILS eingetragene Adresse (deploy.sh übernimmt dafür
+#    ACME_EMAIL) wird beim ersten Login Admin — solange kein aktiver Admin existiert.
+#    Alle weiteren Rechte danach in der Maske "Rollen" (/rollen.html).
+ssh root@<host> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail>'
 ```
 
 `deploy.sh` ist idempotent: Ein erneuter Lauf aktualisiert Container und Realm, behält
@@ -281,8 +284,10 @@ betriebsbereit, Cloudflare-Beschränkung wieder aktiv.
 ### Demo-Zugänge (Zugangsdaten zum Weitergeben)
 
 ```bash
-# anlegen (Admin-Rechte, festes Passwort, Name gegen die VERIFY_PROFILE-Sperre)
-bash deploy/vm/create-user.sh <mail> --admin --password "<pw>" --name "Vor Nach"
+# 1. Konto anlegen (festes Passwort, Name gegen die VERIFY_PROFILE-Sperre)
+bash deploy/vm/create-user.sh <mail> --password "<pw>" --name "Vor Nach"
+# 2. Adminrechte gibt das Portal, nicht das Skript: als Admin anmelden und in
+#    /rollen.html das Häkchen setzen. Kontrolle per SQL: Abschnitt 6b.
 
 # nach der Demo sperren — Abos und Historie bleiben erhalten
 bash deploy/vm/create-user.sh <mail> --disable
@@ -298,6 +303,13 @@ bash deploy/vm/create-user.sh <mail> --enable    # wieder freigeben
   dessen Tageskontingent. Ein unbedachter Testversand an den Pflicht-Verteiler erreicht
   jeden registrierten Empfänger.
 * **Empfänger deaktivieren** (schließt sie vom Versand aus).
+* **Weitere Admins ernennen** (Maske „Rollen“) — für jeden Empfänger, auch fremde
+  selbstregistrierte. Das Recht steht im Portal, nicht im IdP: Es **überlebt das Sperren
+  des Demo-Zugangs** (`create-user.sh <mail> --disable`) und muss einzeln entzogen werden.
+  Kontrolle, wer es hat: der SELECT in Abschnitt 6b.
+* **Verteiler endgültig löschen**, solange keine Meldung darüber verschickt wurde — samt
+  aller Abo-Zeilen, die dabei verloren gehen (ihre Zahl steht danach nur noch im
+  `audit_log`). Verteiler mit Historie sind nur deaktivierbar.
 
 **Wirksamste Eingrenzung für Demophasen:** `MAIL_REDIRECT_TO=<eigene@adresse>` in der
 `.env` setzen und `deploy.sh` erneut laufen lassen. Dann landen alle Mails ausschließlich
@@ -440,18 +452,85 @@ Versandweg, der mitgepflegt werden müsste.
 
 ---
 
-## 6. Topic-Pflege per SQL (ADR-0016)
+## 6. Verteiler-Pflege (Regelweg: Oberfläche, ADR-0024)
 
-Neue Topics oder Beschreibungsänderungen werden direkt in der Datenbank gepflegt:
+Verteiler werden **in der Oberfläche** gepflegt: `/verteiler.html`, Navigationspunkt
+„Verteiler“, Rolle `admin`. Dort gibt es Anlegen, Umbenennen, Beschreibung und
+Pflicht-Kennzeichen, Deaktivieren/Reaktivieren und Löschen — inklusive der Abonnenten- und
+Versandzahlen, die für jede Lösch-Entscheidung nötig sind. Jede Änderung landet im
+`audit_log`, `updated_at` wird fortgeschrieben.
+
+Was die Maske absichtlich nicht kann (Begründungen in [ADR-0024](adr/0024-verteiler-crud-in-der-oberflaeche.md)):
+
+* **Slug ändern** — `topics.id` ist Primärschlüssel mit Referenzen aus `subscriptions` und
+  `dispatches`. Falscher Slug: neuen Verteiler anlegen, alten löschen (solange ohne
+  Versandhistorie) bzw. deaktivieren.
+* **Verteiler mit Versandhistorie löschen** (`409 TOPIC_IN_USE`) — die Historie ist
+  unveränderlich und seit [ADR-0023](adr/0023-meldungshistorie-fuer-alle.md) für alle
+  sichtbar. Stattdessen deaktivieren.
+* **Umbenennen, während ein Versand läuft** (`409 TOPIC_RENAME_BLOCKED`) — kurz warten,
+  der Versand ist in Minuten durch.
+
+### Notfallweg: SQL
+
+Nur zwei Lagen rechtfertigen den direkten DB-Zugriff: Es hat **niemand mehr Adminrechte**
+(dann zuerst 6b) oder die **Oberfläche ist nicht erreichbar**, während eine Störungsmeldung
+über einen neuen bzw. deaktivierten Verteiler raus muss.
 
 ```sql
--- Neues Topic anlegen
+-- Neuen Verteiler anlegen
 INSERT INTO topics (id, name, description, is_mandatory, is_active)
 VALUES ('sap-hr', 'SAP HR Störungen', 'Benachrichtigungen zu HR-Systemen', 0, 1);
 
--- Topic deaktivieren (wird sofort im UI ausgeblendet)
+-- Verteiler deaktivieren (verschwindet sofort aus Abo-Maske und Versand-Auswahl)
 UPDATE topics SET is_active = 0 WHERE id = 'interflex';
+
+-- Pflicht-Kennzeichen kippen (z. B. wenn der Betriebsrat das Zwangs-Abo nicht mitträgt)
+UPDATE topics SET is_mandatory = 0 WHERE id = 'zentrale-stoerungen';
+-- Kontrolle: ein Tippfehler im Slug wäre ein stiller No-op
+SELECT id, is_mandatory FROM topics WHERE id = 'zentrale-stoerungen';
 ```
+
+> **Zwei Unterschiede zum Regelweg, beide bewusst:** Per SQL entsteht **kein**
+> `audit_log`-Eintrag — wer die Änderung nachvollziehbar halten will, schreibt ihn selbst
+> mit (`action` = `topic_created` / `topic_updated` / `topic_deleted`, siehe
+> [ADR-0017](adr/0017-audit-log-umfang.md)). Und `updated_at` wird nicht fortgeschrieben,
+> die Zeile sieht also unverändert aus. Deshalb ist SQL der Notfall- und nicht der
+> Regelweg. Die Guards der API greifen hier ebenfalls nicht: Ein `UPDATE topics SET name`
+> während eines laufenden Versands verfälscht den Titel in den bereits erzeugten Mails.
+
+---
+
+## 6b. Adminrechte per SQL vergeben (Aussperrung auflösen)
+
+Der dokumentierte Ausweg, wenn niemand mehr Adminrechte hat — etwa weil der letzte Admin
+offboardet wurde oder die Datenbank neu aufgesetzt ist. **Der bequemere Weg zuerst:**
+`ADMIN_BOOTSTRAP_EMAILS` in der `.env` setzen und neu starten — diese Adressen bekommen
+beim Login das Adminrecht, solange kein aktiver Admin existiert. Genau dann ist das der
+Fall. Das SQL unten braucht man, wenn die Person sich nicht neu anmelden kann oder der
+Stack nicht neu gestartet werden soll. Referenziert
+von [ADR-0022](adr/0022-adminrechte-im-portal.md) und Migration
+`0003_admin_flag.py`.
+
+Voraussetzung: Die Person hat sich mindestens einmal am Portal angemeldet — erst dann
+existiert ihre Zeile in `users` (JIT-Provisioning, [ADR-0010](adr/0010-jit-provisioning.md)).
+
+```sql
+-- Adminrecht setzen
+UPDATE users SET is_admin = 1 WHERE email = 'vorname.nachname@example.corp';
+
+-- Kontrolle: wer hat das Portal-Kennzeichen?
+SELECT id, email, is_active, is_admin FROM users WHERE is_admin = 1;
+```
+
+Wirkt sofort — die Autorisierung liest das Kennzeichen bei jeder Anfrage. Die
+Navigationspunkte erscheinen nach einem Neuladen der Seite. Ist der Empfänger
+deaktiviert (`is_active = 0`), zuerst reaktivieren, sonst endet die Anmeldung an
+„Bitte neu anmelden“.
+
+Ab hier läuft die Rechtevergabe wieder über die Oberfläche: `/rollen.html`. Auch hier
+entsteht per SQL **kein** `audit_log`-Eintrag (`admin_granted`) — bei einer Aussperrung ist
+das vertretbar, ein Vermerk im Change gehört trotzdem dazu.
 
 ---
 

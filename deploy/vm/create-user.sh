@@ -1,7 +1,9 @@
 #!/bin/bash
-# Legt einen Benutzer im öffentlichen Keycloak an (optional mit Admin-Rolle).
+# Legt einen Benutzer im öffentlichen Keycloak an — also eine ANMELDUNG, keine
+# Berechtigung. Adminrechte vergibt das Portal selbst (Maske „Rollen", ADR-0022);
+# den allerersten Admin holt ADMIN_BOOTSTRAP_EMAILS aus der .env (RUNBOOK 6b).
 #
-#   bash deploy/vm/create-user.sh <email> [--admin] [--password <pw>]
+#   bash deploy/vm/create-user.sh <email> [--password <pw>] [--name "Vor Nach"]
 #
 # Läuft über den api-Container, weil die Keycloak-Adminschnittstelle absichtlich
 # nicht von außen erreichbar ist (NGINX blockt /idp/admin).
@@ -13,15 +15,19 @@ REPO_DIR="${REPO_DIR:-/opt/stoerungsinfo}"
 cd "$REPO_DIR"
 set -a; . ./.env; set +a
 
-EMAIL="${1:?Aufruf: create-user.sh <email> [--admin] [--password <pw>] [--name \"Vor Nach\"] [--disable|--enable]}"
+EMAIL="${1:?Aufruf: create-user.sh <email> [--password <pw>] [--name \"Vor Nach\"] [--disable|--enable]}"
 shift
-WANT_ADMIN=false
 PASSWORD=""
 FULL_NAME=""
 SET_ENABLED=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        --admin) WANT_ADMIN=true ;;
+        # --admin gibt es nicht mehr: Eine Realm-Rolle erteilt keine Portalrechte
+        # (ADR-0022). Adminrechte setzt die Maske „Rollen".
+        --admin)
+            echo "FEHLER: --admin entfällt. Adminrechte vergibt die Maske „Rollen“ im" >&2
+            echo "        Portal; der erste Admin kommt über ADMIN_BOOTSTRAP_EMAILS (RUNBOOK 6b)." >&2
+            exit 2 ;;
         --password) PASSWORD="${2:?--password braucht einen Wert}"; shift ;;
         --name) FULL_NAME="${2:?--name braucht einen Wert}"; shift ;;
         # Anmeldung sperren/freigeben, ohne den Zugang zu löschen — damit bleiben
@@ -40,8 +46,6 @@ docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml exec -T
     -e NEW_PASSWORD="$PASSWORD" \
     -e NEW_FULL_NAME="$FULL_NAME" \
     -e SET_ENABLED="$SET_ENABLED" \
-    -e WANT_ADMIN="$WANT_ADMIN" \
-    -e ADMIN_ROLE_VALUE="$ADMIN_ROLE_VALUE" \
     -e PUBLIC_BASE_URL="$PUBLIC_BASE_URL" \
     api python - <<'PYTHON'
 import os
@@ -55,8 +59,6 @@ REALM = "dev"
 email = os.environ["NEW_EMAIL"]
 password = os.environ.get("NEW_PASSWORD") or secrets.token_urlsafe(12)
 must_change = not os.environ.get("NEW_PASSWORD")
-want_admin = os.environ.get("WANT_ADMIN") == "true"
-role = os.environ["ADMIN_ROLE_VALUE"]
 
 # Vor- und Nachname sind im Realm Pflichtfelder: fehlen sie, verlangt Keycloak
 # beim Login die Aktion VERIFY_PROFILE und der Anmeldevorgang bleibt stehen.
@@ -147,21 +149,6 @@ with httpx.Client(timeout=30) as client:
         json={"requiredActions": ["UPDATE_PASSWORD"] if must_change else []},
     )
 
-    if want_admin:
-        role_data = client.get(f"{KC}/admin/realms/{REALM}/roles/{role}", headers=headers)
-        if role_data.status_code != 200:
-            print(f"FEHLER: Rolle {role} nicht gefunden", file=sys.stderr)
-            sys.exit(1)
-        assign = client.post(
-            f"{KC}/admin/realms/{REALM}/users/{user_id}/role-mappings/realm",
-            headers=headers,
-            json=[{"id": role_data.json()["id"], "name": role}],
-        )
-        if assign.status_code not in (204, 200):
-            print(f"FEHLER bei Rollenzuweisung ({assign.status_code})", file=sys.stderr)
-            sys.exit(1)
-        print(f"Rolle zugewiesen: {role}")
-
 print()
 print("=" * 64)
 print(f"  Login:    {username}")
@@ -169,5 +156,6 @@ print(f"  Passwort: {password}")
 if must_change:
     print("  → muss beim ersten Login geändert werden")
 print(f"  Portal:   {os.environ['PUBLIC_BASE_URL']}/abos.html")
+print("  Rechte:   Mitarbeiter. Adminrechte in der Maske „Rollen“ vergeben.")
 print("=" * 64)
 PYTHON

@@ -509,3 +509,90 @@ textarea { resize: vertical; min-height: 180px; }
 
 .load-more-row { text-align: center; padding: 16px; }
 
+
+/* ---------- Verteiler- und Rollen-Verwaltung ---------- */
+
+/* .btn-primary ist bewusst width:100% (Versand-Formular). Für Schaltflächen in
+   Tabellenzeilen und Button-Paaren braucht es die schmale Variante. */
+.btn-inline { width: auto; padding: 6px 14px; font-size: 0.85rem; }
+
+.btn-danger { background: var(--surface); color: var(--danger); border: 1px solid #eccac5; }
+.btn-danger:hover { background: #fdf1ef; }
+.btn-danger:disabled { color: var(--text-muted); border-color: var(--border); cursor: not-allowed; }
+
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-row .btn { width: auto; }
+
+.row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Zahlenspalten: die Kopfzeile fehlte im Bestand und blieb linksbündig. */
+.users-table th.num, .history th.num { text-align: right; }
+.users-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.badge-inactive { background: var(--surface-muted); color: var(--text-muted); }
+.badge-admin { background: #e8effa; color: var(--primary); }
+
+.row-inactive td { opacity: 0.55; }
+
+/* Zweispaltiges Formular für die Verteiler-Pflege; bricht auf schmalen Fenstern um. */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+.form-grid .field-wide { grid-column: 1 / -1; }
+
+@media (max-width: 700px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
+.slug-preview { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+
+/* ---------- Meldungs-Historie (Leseansicht) ---------- */
+
+/* Karten statt Tabelle: Der Meldungstext ist Prosa und braucht Zeilenbreite. */
+.meldung-list { display: grid; gap: 14px; }
+
+.meldung {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 20px;
+}
+
+.meldung-stoerung { border-left-color: var(--danger); }
+.meldung-einschraenkung { border-left-color: var(--warn); }
+.meldung-entwarnung { border-left-color: var(--ok); }
+
+.meldung-subject { margin: 0; font-size: 1rem; font-weight: 600; line-height: 1.35; }
+
+.meldung-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* pre-wrap erhält die Absätze des Meldungstexts. Der Text wird ausschließlich per
+   textContent gesetzt — er ist nie gegen HTML validiert worden (nur längenbegrenzt). */
+.meldung-body {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+  max-width: 68ch;
+}
+
+/* Gesperrte Felder müssen als gesperrt erkennbar sein — die Verteiler-Maske setzt
+   readOnly (statt disabled, damit der Wert kopierbar bleibt) für den unveränderlichen
+   Slug und für den Namen bei laufendem Versand. */
+input[readonly], textarea[readonly] {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* .search-row ohne das flex:1-Suchfeld (Meldungs-Filter) würde die Trefferzahl direkt
+   an das Dropdown kleben — der Abstandshalter schiebt sie nach rechts. */
+.search-row .result-count { margin-left: auto; }

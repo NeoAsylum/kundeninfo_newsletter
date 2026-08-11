@@ -23,18 +23,21 @@ BASE_CLAIMS = {
 }
 
 
-def test_identity_admin_rolle_wird_gemappt():
+def test_identity_aus_claims():
     identity = _client().identity_from_claims(BASE_CLAIMS)
-    assert identity.roles == ["employee", "admin"]
+    assert identity.roles == ["employee"]
     assert identity.email == "mia.muster@example.corp"  # normalisiert
     assert identity.sub == "user-123"
 
 
-def test_identity_ohne_admin_rolle():
-    claims = dict(BASE_CLAIMS, realm_access={"roles": ["irgendwas"]})
-    identity = _client().identity_from_claims(claims)
-    assert identity.roles == ["employee"]
-    assert not identity.is_admin
+def test_rollen_aus_dem_token_werden_ignoriert():
+    """Adminrechte führt das Portal (users.is_admin, ADR-0022) — ein Rollen-Claim im
+    Token darf keine Berechtigung erzeugen, auch nicht den früheren Wert
+    `stoerungsinfo-admin`. Sonst entstünde eine Rolle, die niemand mehr widerrufen kann.
+    """
+    for rollen in (["stoerungsinfo-admin"], ["admin"], [], ["uma_authorization"]):
+        claims = dict(BASE_CLAIMS, realm_access={"roles": rollen})
+        assert _client().identity_from_claims(claims).roles == ["employee"]
 
 
 def test_email_claim_konfigurierbar():

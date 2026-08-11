@@ -192,10 +192,10 @@ class OidcClient:
         email = claim_path(claims, self._s.oidc_email_claim)
         if not email:
             raise OidcError(f"Claim '{self._s.oidc_email_claim}' fehlt im ID-Token")
-        idp_roles = claim_path(claims, self._s.oidc_roles_claim) or []
+        # Rollen kommen NICHT mehr aus dem Token: Adminrechte führt das Portal
+        # (users.is_admin, ADR-0022). Das Cookie trägt nur noch die Basisrolle, damit
+        # keine Berechtigung an einer Stelle entsteht, die niemand mehr prüft.
         roles = ["employee"]
-        if self._s.admin_role_value in idp_roles:
-            roles.append("admin")
         display_name = claims.get("name") or claims.get("preferred_username")
         return Identity(
             sub=str(claims["sub"]),

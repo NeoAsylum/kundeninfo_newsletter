@@ -1,6 +1,6 @@
 # [ADR-0000] Titel der Architekturentscheidung
 
-* **Status:** Entwurf / Akzeptiert / Abgelehnt / Ersetzt durch ADR-XXXX
+* **Status:** Entwurf / Akzeptiert / Abgelehnt / Abgelöst durch [ADR-XXXX](XXXX-titel.md)
 * **Datum:** YYYY-MM-DD
 * **Kontext:** Kurze Beschreibung des Problems und der Rahmenbedingungen.
 

@@ -64,6 +64,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True)
     display_name: Mapped[str | None] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # Das Adminrecht — die EINZIGE Quelle dafür (ADR-0022). Rollen aus dem IdP-Token
+    # werden nicht ausgewertet; geprüft wird bei jeder Anfrage, siehe api/deps.py.
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
 

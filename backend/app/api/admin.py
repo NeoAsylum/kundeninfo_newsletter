@@ -1,6 +1,7 @@
 """Admin-API (Rolle admin): Empfängerzahl, Vorschau, Versand anlegen, Historie (Plan 7.2).
 
-Bewusst KEIN Topic-CRUD (ADR-016), kein DELETE (Historie unveränderlich),
+Kein DELETE (Historie unveränderlich), Verteiler-CRUD liegt in admin_topics.py
+(ADR-0024, löst ADR-0016 ab),
 kein Abbruch (Erweiterungspunkt cancel).
 """
 
@@ -14,7 +15,6 @@ from app.api.deps import (
     CurrentUserDep,
     SessionDep,
     SettingsDep,
-    get_current_user,
     require_admin,
 )
 from app.api.errors import ApiError
@@ -39,10 +39,10 @@ from app.domain.recipients import resolve_recipient_users
 from app.domain.topics import get_topic
 from app.mail.render import build_subject, render_mail
 
-# require_admin (Rolle aus dem Cookie) PLUS get_current_user (DB-Check auf is_active):
-# Ein offboardeter Admin behält sonst mit bestehendem Cookie bis zu 8 h Lesezugriff
-# auf Historie/Empfängerzahlen. SESSION_STALE → Frontend erzwingt Re-Login.
-router = APIRouter(dependencies=[Depends(require_admin), Depends(get_current_user)])
+# require_admin deckt beides ab: Es löst den DB-User auf (offboardet → 401 SESSION_STALE,
+# das Frontend erzwingt Re-Login) und prüft danach die Adminrechte gegen IdP-Rolle UND
+# users.is_admin (ADR-0022). Ein Cookie allein autorisiert nicht mehr.
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 def _build_subject_checked(severity: Severity, topic_name: str, title: str) -> str:

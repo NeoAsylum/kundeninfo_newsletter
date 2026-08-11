@@ -85,7 +85,7 @@ async def callback(
             status_code=502,
         )
 
-    await jit_upsert(session, identity)
+    await jit_upsert(session, identity, settings)
     await session.commit()
 
     response = RedirectResponse(_safe_next(state_data.get("next")), status_code=302)

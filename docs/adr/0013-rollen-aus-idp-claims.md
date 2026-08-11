@@ -16,3 +16,17 @@ Zwei Rollen, mehr nicht: `employee` = jeder erfolgreich Eingeloggte; `admin` = d
 ## Verworfene Alternativen
 
 * **Rollen in der DB pflegen:** zweite Wahrheit neben dem IdP, eigener Admin-Aufwand, Drift-Risiko.
+
+## Abgelöst durch [ADR-0022](0022-adminrechte-im-portal.md), soweit es die Rolle `admin` betrifft
+
+Nicht mehr gültig: Die Rolle `admin` kommt **nicht** mehr aus einem IdP-Claim. Sie steht
+allein in der Datenbank (`users.is_admin`) und wird bei jeder Anfrage dort geprüft;
+`OIDC_ROLES_CLAIM` und `ADMIN_ROLE_VALUE` sind entfallen, ein Rollen-Claim im Token wird
+nicht gelesen. Damit ist auch die verworfene Alternative „Rollen in der DB pflegen“ zur
+getroffenen Entscheidung geworden — die Begründung dagegen (zweite Wahrheit, Drift) hat
+sich umgekehrt: Genau die **eine** Wahrheit war das Ziel, und der IdP konnte sie nicht
+liefern, weil seine Adminkonsole im Pilot bewusst unerreichbar ist.
+
+Weiter gültig: `employee` gilt für jeden angemeldeten Nutzer, die Rollenmenge bleibt
+`employee`/`admin`, die Durchsetzung bleibt serverseitig als FastAPI-Dependency, und der
+benannte Erweiterungspunkt `topic_permissions` bleibt unangetastet.

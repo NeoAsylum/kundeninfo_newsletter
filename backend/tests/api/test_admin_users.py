@@ -8,7 +8,7 @@ ADMIN = ("sub-admin", "admin1@example.corp")
 
 
 async def _setup(app, make_user):
-    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin")
+    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin", admin=True)
     mia = await make_user(sub="s1", email="mia@example.corp", name="Mia Muster")
     max_ = await make_user(sub="s2", email="max@example.corp", name="Max Beispiel")
     inactive = await make_user(sub="s3", email="alt@example.corp", name="Alt", active=False)
@@ -26,7 +26,7 @@ async def _audit_actions(app) -> list[str]:
 
 async def test_liste_mit_abos_und_status(client, app, auth_headers, make_user):
     await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.get("/api/v1/admin/users", headers=headers)
     assert response.status_code == 200
     data = response.json()
@@ -40,7 +40,7 @@ async def test_liste_mit_abos_und_status(client, app, auth_headers, make_user):
 
 async def test_suche_und_paging(client, app, auth_headers, make_user):
     await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
 
     search = (await client.get("/api/v1/admin/users?query=mia", headers=headers)).json()
     assert search["total"] == 1
@@ -71,7 +71,7 @@ async def test_deaktivieren_entfernt_aus_empfaengerauflloesung(
     client, app, auth_headers, make_user
 ):
     _, mia, _, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
 
     before = (
         await client.get(
@@ -96,7 +96,7 @@ async def test_deaktivieren_entfernt_aus_empfaengerauflloesung(
 
 async def test_patch_ohne_aenderung_kein_audit(client, app, auth_headers, make_user):
     _, mia, _, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.patch(
         f"/api/v1/admin/users/{mia.id}", headers=headers, json={"is_active": True}
     )
@@ -106,7 +106,7 @@ async def test_patch_ohne_aenderung_kein_audit(client, app, auth_headers, make_u
 
 async def test_selbst_deaktivieren_409(client, app, auth_headers, make_user):
     admin, _, _, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.patch(
         f"/api/v1/admin/users/{admin.id}", headers=headers, json={"is_active": False}
     )
@@ -116,7 +116,7 @@ async def test_selbst_deaktivieren_409(client, app, auth_headers, make_user):
 
 async def test_unbekannter_user_404(client, app, auth_headers, make_user):
     await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.patch(
         "/api/v1/admin/users/99999", headers=headers, json={"is_active": False}
     )
@@ -126,7 +126,7 @@ async def test_unbekannter_user_404(client, app, auth_headers, make_user):
 
 async def test_admin_abo_pflege_mit_audit(client, app, auth_headers, make_user):
     _, _, max_, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
 
     put = await client.put(f"/api/v1/admin/users/{max_.id}/subscriptions/kap", headers=headers)
     assert put.status_code == 204
@@ -154,7 +154,7 @@ async def test_admin_abo_pflege_mit_audit(client, app, auth_headers, make_user):
 
 async def test_admin_abo_pflicht_topic_409(client, app, auth_headers, make_user):
     _, mia, _, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.put(
         f"/api/v1/admin/users/{mia.id}/subscriptions/zentrale-stoerungen", headers=headers
     )
@@ -164,7 +164,7 @@ async def test_admin_abo_pflicht_topic_409(client, app, auth_headers, make_user)
 
 async def test_admin_abo_unbekanntes_topic_404(client, app, auth_headers, make_user):
     _, mia, _, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.put(
         f"/api/v1/admin/users/{mia.id}/subscriptions/gibts-nicht", headers=headers
     )
@@ -173,7 +173,7 @@ async def test_admin_abo_unbekanntes_topic_404(client, app, auth_headers, make_u
 
 async def test_reaktivieren_mit_audit(client, app, auth_headers, make_user):
     _, _, _, inactive = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.patch(
         f"/api/v1/admin/users/{inactive.id}", headers=headers, json={"is_active": True}
     )
@@ -184,7 +184,7 @@ async def test_reaktivieren_mit_audit(client, app, auth_headers, make_user):
 
 async def test_admin_abo_delete_pflicht_topic_409(client, app, auth_headers, make_user):
     _, mia, _, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.delete(
         f"/api/v1/admin/users/{mia.id}/subscriptions/zentrale-stoerungen", headers=headers
     )
@@ -194,7 +194,7 @@ async def test_admin_abo_delete_pflicht_topic_409(client, app, auth_headers, mak
 
 async def test_admin_abo_unbekannter_user_404(client, app, auth_headers, make_user):
     await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     response = await client.put("/api/v1/admin/users/99999/subscriptions/kap", headers=headers)
     assert response.status_code == 404
     assert response.json()["code"] == "USER_NOT_FOUND"
@@ -207,10 +207,10 @@ async def test_unauthentifiziert_401(client):
 
 async def test_suche_escaped_like_wildcards(client, app, auth_headers, make_user):
     """'_'/'%' aus der Suche matchen wörtlich, nicht als Wildcard."""
-    await make_user(sub=ADMIN[0], email=ADMIN[1])
+    await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
     await make_user(sub="s1", email="vorname_nachname@example.corp")
     await make_user(sub="s2", email="vornameXnachname@example.corp")
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
 
     underscore = (
         await client.get("/api/v1/admin/users?query=vorname_nach", headers=headers)
@@ -228,7 +228,7 @@ async def test_abo_auf_deaktiviertem_topic_aufraeumbar(client, app, auth_headers
     from sqlalchemy import text
 
     _, mia, _, _ = await _setup(app, make_user)
-    headers = auth_headers(*ADMIN, roles=["employee", "admin"])
+    headers = auth_headers(*ADMIN)
     async with app.state.sessionmaker() as session:
         await session.execute(text("UPDATE topics SET is_active = 0 WHERE id = 'kap'"))
         await session.commit()

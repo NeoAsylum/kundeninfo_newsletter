@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     oidc_client_id: str
     oidc_client_secret: str
     oidc_email_claim: str = "email"
-    oidc_roles_claim: str = "realm_access.roles"
-    admin_role_value: str = "stoerungsinfo-admin"
+
+    # Notnagel für den ersten Admin: Adressen (kommagetrennt), die beim Login das
+    # Adminrecht bekommen — aber NUR, solange es keinen aktiven Admin gibt (ADR-0022).
+    # Damit ist die Liste im Normalbetrieb wirkungslos und taugt nicht als Hintertür.
+    admin_bootstrap_emails: str = ""
 
     session_secret: str
     session_max_age: int = 28800
@@ -73,6 +76,15 @@ class Settings(BaseSettings):
         if self.smtp_auth_mode == "login" and not (self.smtp_user and self.smtp_password):
             raise ValueError("SMTP_AUTH_MODE=login erfordert SMTP_USER und SMTP_PASSWORD")
         return self
+
+    @property
+    def admin_bootstrap_set(self) -> set[str]:
+        """Normalisiert (klein, getrimmt) — E-Mails aus Claims kommen kleingeschrieben an."""
+        return {
+            adresse.strip().lower()
+            for adresse in self.admin_bootstrap_emails.split(",")
+            if adresse.strip()
+        }
 
     @property
     def is_dev(self) -> bool:

@@ -32,7 +32,7 @@ Zugang nach der Demo sperren (Abos und Historie bleiben erhalten), weitere anleg
 
 ```bash
 ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --disable'
-ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --admin --name "Vor Nach"'
+ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --name "Vor Nach"'
 ```
 
 ### Betrieb nur bei Bedarf
@@ -81,8 +81,11 @@ Sobald der Command erfolgreich beendet ist, laufen alle 5 Docker-Container im En
 | Dienst | URL | Anmerkung / Demo-Credentials |
 |---|---|---|
 | **Abo-Self-Service (UI)** | [http://localhost:8080/abos.html](http://localhost:8080/abos.html) | Login via SSO (Keycloak) |
+| **Meldungen (UI)** | [http://localhost:8080/meldungen.html](http://localhost:8080/meldungen.html) | Für alle Angemeldeten: verschickte Meldungen aller Verteiler, ohne Empfänger-/Absenderdaten ([ADR-0023](docs/adr/0023-meldungshistorie-fuer-alle.md)) |
 | **Versand-Maske (Admin UI)** | [http://localhost:8080/versand.html](http://localhost:8080/versand.html) | Nur für Benutzer mit Rolle `admin` |
 | **Empfänger-Verwaltung (Admin UI)** | [http://localhost:8080/empfaenger.html](http://localhost:8080/empfaenger.html) | Nur für Benutzer mit Rolle `admin` |
+| **Verteiler-Verwaltung (Admin UI)** | [http://localhost:8080/verteiler.html](http://localhost:8080/verteiler.html) | Nur für Benutzer mit Rolle `admin` — Verteiler anlegen, umbenennen, deaktivieren, löschen ([ADR-0024](docs/adr/0024-verteiler-crud-in-der-oberflaeche.md)) |
+| **Rollen-Verwaltung (Admin UI)** | [http://localhost:8080/rollen.html](http://localhost:8080/rollen.html) | Nur für Benutzer mit Rolle `admin` — Adminrechte im Portal vergeben/entziehen ([ADR-0022](docs/adr/0022-adminrechte-im-portal.md)) |
 | **Datenschutz-Hinweis** | [http://localhost:8080/datenschutz.html](http://localhost:8080/datenschutz.html) | Statische Infoseite (Art. 13 DSGVO) |
 | **REST-API Dokumentation** | [http://localhost:8080/docs](http://localhost:8080/docs) | Swagger UI (OpenAPI) — nur bei `APP_ENV=dev` |
 | **Mailpit Web-UI (Mock-Outlook)** | [http://localhost:8025](http://localhost:8025) | Alle versendeten Mails landen hier |
@@ -109,8 +112,17 @@ Unzustellbarkeitsberichte (siehe [RUNBOOK 3b](docs/RUNBOOK.md)).
 jedem Container-Neuaufbau:
 
 ```bash
-python ops/create_dev_user.py --email <adresse> --admin
+python ops/create_dev_user.py --email <adresse>
 ```
+
+**Adminrechte kommen ausschließlich aus dem Portal** ([ADR-0022](docs/adr/0022-adminrechte-im-portal.md)):
+aus `users.is_admin`, geprüft bei jeder Anfrage. Eine Rolle im IdP bewirkt nichts — deshalb
+gibt es an den Konto-Skripten auch kein `--admin` mehr. Wer schon Admin ist, vergibt weitere
+Rechte in der Maske „Rollen“. Zum *ersten* Admin führt `ADMIN_BOOTSTRAP_EMAILS` in der `.env`
+(im DEV-Standard `admin1@example.corp`): Diese Adressen bekommen das Recht beim Login, aber
+nur solange kein aktiver Admin existiert — damit ist die Liste im Normalbetrieb wirkungslos.
+Das ist zugleich der Ausweg, falls sich niemand mehr anmelden kann, der Rechte vergeben darf
+([RUNBOOK 6b](docs/RUNBOOK.md)).
 
 ---
 

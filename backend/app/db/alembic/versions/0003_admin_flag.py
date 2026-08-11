@@ -1,0 +1,70 @@
+"""users.is_admin — im Portal vergebene Adminrechte (ADR-0022)
+
+Revision ID: 0003
+Revises: 0002
+Create Date: 2026-08-11
+
+Additiv (ADR-0011): eine neue Spalte mit server_default, damit bestehende Zeilen
+gültig bleiben und die Migration ohne Ausfallfenster läuft.
+
+Bestandsübernahme: Bis hierher kam die Adminrolle ausschließlich aus dem IdP, die
+Datenbank weiß also nicht, wer Admin ist. Die Spalte darf aber nicht leer
+starten — sonst steht in der neuen Rollen-Oberfläche niemand, und wer Rechte
+vergeben will, findet keinen Ausgangspunkt. Wir übernehmen deshalb jeden, der
+belegbar bereits als Admin gehandelt hat: Ersteller von Versänden und Akteure im
+Audit-Log. Beides sind Aktionen, die nur hinter dem Admin-Gate möglich sind.
+
+Konten mit Adminrolle, die noch nie gehandelt haben (z. B. ein frischer
+Demo-Zugang), erfasst das nicht — sie bleiben über ihre IdP-Rolle Admin und
+können danach in der Oberfläche gesetzt werden (RUNBOOK 6b).
+"""
+
+import sqlalchemy as sa
+from alembic import op
+
+revision = "0003"
+down_revision = "0002"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        "users",
+        sa.Column("is_admin", sa.Boolean(), nullable=False, server_default="0"),
+    )
+
+    conn = op.get_bind()
+    # Wer einen Versand angelegt hat, war Admin — die Route hängt hinter require_admin.
+    conn.execute(
+        sa.text(
+            "UPDATE users SET is_admin = 1 WHERE id IN "
+            "(SELECT DISTINCT created_by_user_id FROM dispatches)"
+        )
+    )
+    # Ebenso jeder Akteur im Audit-Log — dort landen ausschließlich Admin-Aktionen,
+    # solange AUDIT_SUBSCRIPTIONS aus ist (ADR-0017); deshalb die Einschränkung auf
+    # die Admin-Aktionen.
+    #
+    # `audit_log` führt keine user_id, die E-Mail ist dort der einzige Schlüssel —
+    # und sie ist KEIN stabiler Anker (ADR-0010: oidc_sub ist es). Adressen werden
+    # recycelt: Verlässt ein Admin den Konzern und erhält jemand anders seine
+    # Adresse, schreibt die Kollisionsbehandlung beim ersten Login die Alt-Zeile auf
+    # `user-<id>@invalid.archiviert` um und die NEUE Zeile trägt die Adresse. Ein
+    # reiner Adressvergleich würde diese Person zum Admin machen, ohne dass sie es
+    # je war. Deshalb die Zeitachse: Wer gehandelt hat, existierte davor.
+    conn.execute(
+        sa.text(
+            "UPDATE users u SET u.is_admin = 1 WHERE EXISTS ("
+            "  SELECT 1 FROM audit_log a"
+            "  WHERE a.actor_email = u.email"
+            "    AND a.ts >= u.created_at"
+            "    AND a.action IN ('dispatch_created', 'user_activated',"
+            "                     'user_deactivated', 'admin_subscribe',"
+            "                     'admin_unsubscribe'))"
+        )
+    )
+
+
+def downgrade() -> None:
+    op.drop_column("users", "is_admin")

@@ -15,13 +15,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUserDep, SessionDep, get_current_user, require_admin
+from app.api.deps import CurrentUserDep, SessionDep, require_admin
 from app.api.errors import ApiError
 from app.api.schemas import AdminUserListOut, AdminUserOut, AdminUserPatch
 from app.db.models import AuditLog, Subscription, User
 from app.domain.topics import get_topic, guard_mandatory
 
-router = APIRouter(dependencies=[Depends(require_admin), Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 async def _get_user(session: AsyncSession, user_id: int) -> User:
@@ -53,6 +53,7 @@ def _to_out(user: User, topic_ids: list[str]) -> AdminUserOut:
         email=user.email,
         display_name=user.display_name,
         is_active=user.is_active,
+        is_admin=user.is_admin,
         subscribed_topic_ids=topic_ids,
     )
 
@@ -182,3 +183,66 @@ async def admin_unsubscribe(
             )
         )
     await session.commit()
+
+
+@router.put("/users/{user_id}/admin", response_model=AdminUserOut)
+async def grant_admin(user_id: int, session: SessionDep, actor: CurrentUserDep) -> AdminUserOut:
+    """Vergibt das im Portal geführte Adminrecht (ADR-0022).
+
+    Wirkt sofort — die Autorisierung liest bei jeder Anfrage die Datenbank. Die
+    Navigation der betroffenen Person erscheint allerdings erst nach einem Neuladen
+    der Seite, weil sie beim Laden einmal /me abfragt.
+    """
+    user = await _get_user(session, user_id)
+    if not user.is_active:
+        raise ApiError(
+            409,
+            "USER_INACTIVE",
+            f"{user.email} ist deaktiviert — bitte zuerst reaktivieren, sonst hätte das "
+            "Recht keine Wirkung (die Anmeldung endet vorher mit „Bitte neu anmelden“)",
+        )
+    if not user.is_admin:
+        user.is_admin = True
+        session.add(
+            AuditLog(
+                actor_email=actor.email,
+                action="admin_granted",
+                detail={"user_id": user.id, "email": user.email},
+            )
+        )
+        await session.commit()
+    topic_ids = (await _subscriptions_by_user(session, [user.id]))[user.id]
+    return _to_out(user, topic_ids)
+
+
+@router.delete("/users/{user_id}/admin", response_model=AdminUserOut)
+async def revoke_admin(user_id: int, session: SessionDep, actor: CurrentUserDep) -> AdminUserOut:
+    """Entzieht das im Portal vergebene Adminrecht.
+
+    Der Selbstentzug ist gesperrt — analog zur Selbst-Deaktivierung. Das ist zugleich
+    der Aussperr-Schutz: Wer entziehen darf, ist selbst Admin und bleibt es, also ist
+    nach jedem erlaubten Entzug mindestens ein Admin übrig.
+
+    Eine Adminrolle, die aus dem IdP stammt, kann hier NICHT entzogen werden — sie
+    gehört dem Identity Provider. Der Response zeigt deshalb nur das Portal-Kennzeichen.
+    """
+    user = await _get_user(session, user_id)
+    if user.id == actor.id:
+        raise ApiError(
+            409,
+            "CANNOT_REVOKE_OWN_ADMIN",
+            "Du kannst dir die Adminrechte nicht selbst entziehen — sonst könnte sich "
+            "der letzte Admin aussperren. Bitte von einem anderen Admin entziehen lassen.",
+        )
+    if user.is_admin:
+        user.is_admin = False
+        session.add(
+            AuditLog(
+                actor_email=actor.email,
+                action="admin_revoked",
+                detail={"user_id": user.id, "email": user.email},
+            )
+        )
+        await session.commit()
+    topic_ids = (await _subscriptions_by_user(session, [user.id]))[user.id]
+    return _to_out(user, topic_ids)

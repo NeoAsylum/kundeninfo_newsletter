@@ -29,12 +29,6 @@ def get_identity(
     return identity
 
 
-def require_admin(identity: Annotated[Identity, Depends(get_identity)]) -> Identity:
-    if not identity.is_admin:
-        raise ApiError(403, "NOT_ADMIN", "Keine Berechtigung für diese Funktion")
-    return identity
-
-
 async def get_current_user(
     identity: Annotated[Identity, Depends(get_identity)],
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -45,6 +39,29 @@ async def get_current_user(
     ).scalar_one_or_none()
     if user is None or not user.is_active:
         raise ApiError(401, "SESSION_STALE", "Bitte neu anmelden")
+    return user
+
+
+def is_admin(user: User) -> bool:
+    """Die Datenbank ist die EINZIGE Quelle für Adminrechte (ADR-0022).
+
+    Rollen aus dem IdP werden dafür nicht mehr gelesen — Auftraggeber-Entscheidung: Die
+    Vergabe gehört ins Portal, nicht in einen IAM-Antrag. Folge für den Betrieb: Eine
+    Deaktivierung im Verzeichnisdienst entzieht das Adminrecht NICHT mehr von selbst;
+    dafür ist die Empfänger- bzw. Rollen-Maske zuständig (RUNBOOK 3b/6b).
+    """
+    return user.is_admin
+
+
+async def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
+    """Prüft bei JEDER Anfrage gegen die Datenbank, nicht gegen das Cookie: ein in der
+    Oberfläche entzogenes Recht wirkt damit sofort statt erst nach Cookie-Ablauf.
+
+    Hängt an get_current_user, damit ein deaktivierter Admin 401 SESSION_STALE bekommt
+    (Offboarding) und nicht 403 — die Reihenfolge ist als Test festgehalten.
+    """
+    if not is_admin(user):
+        raise ApiError(403, "NOT_ADMIN", "Keine Berechtigung für diese Funktion")
     return user
 
 

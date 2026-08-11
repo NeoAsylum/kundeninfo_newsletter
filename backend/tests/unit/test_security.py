@@ -11,11 +11,13 @@ from tests.conftest import make_settings
 
 
 def test_session_roundtrip(settings):
-    identity = Identity(sub="abc", email="a@b.c", display_name="A", roles=["employee", "admin"])
+    identity = Identity(sub="abc", email="a@b.c", display_name="A", roles=["employee"])
     cookie = session_cookie_value(settings, identity)
     restored = read_session(settings, cookie)
     assert restored == identity
-    assert restored.is_admin
+    # Das Cookie trägt bewusst KEINE Berechtigung — Adminrechte stehen in der Datenbank
+    # und werden je Anfrage geprüft (ADR-0022). Ein Recht im Cookie wäre unwiderrufbar.
+    assert not hasattr(restored, "is_admin")
 
 
 def test_manipuliertes_cookie_wird_verworfen(settings):

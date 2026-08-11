@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verteiler — Störungsinfo-Portal</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/abos.html"><span class="brand-mark">S</span> Störungsinfo-Portal</a>
+      <nav class="topbar-nav" aria-label="Hauptnavigation">
+        <a href="/abos.html" data-page="abos">Meine Abos</a>
+        <a href="/meldungen.html" data-page="meldungen">Meldungen</a>
+        <a href="/versand.html" data-page="versand" id="nav-versand" data-admin-only hidden>Versand</a>
+        <a href="/empfaenger.html" data-page="empfaenger" id="nav-empfaenger" data-admin-only hidden>Empfänger</a>
+        <a href="/verteiler.html" data-page="verteiler" id="nav-verteiler" data-admin-only hidden>Verteiler</a>
+        <a href="/rollen.html" data-page="rollen" id="nav-rollen" data-admin-only hidden>Rollen</a>
+      </nav>
+      <span class="topbar-spacer"></span>
+      <span class="user-chip" id="user-chip" aria-live="polite">…</span>
+      <a class="logout-link" href="#">Abmelden</a>
+    </div>
+  </header>
+
+  <main class="page page-wide">
+    <div class="page-head">
+      <h1>Verteiler verwalten</h1>
+      <p>Verteiler anlegen, umbenennen, deaktivieren oder löschen — was dabei endgültig ist,
+         steht am jeweiligen Feld.</p>
+    </div>
+
+    <div class="search-row">
+      <button type="button" class="btn btn-secondary btn-inline" id="neu-button">
+        Neuen Verteiler anlegen
+      </button>
+      <span class="result-count" id="anzahl" aria-live="polite"></span>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="users-table" aria-label="Verteilerliste">
+          <thead>
+            <tr>
+              <th>Verteiler</th>
+              <th>Beschreibung</th>
+              <th class="num">Abos</th>
+              <th class="num">Meldungen</th>
+              <th>Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="verteiler-body">
+            <tr><td colspan="5" class="loading-state">Lade Verteiler …</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="detail-hint">
+      Sobald über einen Verteiler eine Meldung verschickt wurde, ist er nicht mehr löschbar —
+      die Meldungshistorie bleibt unveränderlich. „Deaktivieren“ nimmt ihn aus Abo-Maske und
+      Versand-Auswahl, ohne die Meldungen anzutasten.
+    </p>
+
+    <section class="card panel" id="form-panel" aria-labelledby="form-title" hidden>
+      <h2 id="form-title">Neuen Verteiler anlegen</h2>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="feld-slug">Slug <span class="hint">(technischer Schlüssel)</span></label>
+          <input type="text" id="feld-slug" class="slug-preview" maxlength="64"
+                 autocomplete="off" spellcheck="false" placeholder="z. B. sap-produktion">
+          <span class="hint" id="hinweis-slug"></span>
+        </div>
+
+        <div class="field">
+          <label for="feld-name">Name <span class="hint">(2–120 Zeichen)</span></label>
+          <input type="text" id="feld-name" maxlength="120" autocomplete="off"
+                 placeholder="z. B. SAP Produktion">
+          <span class="hint" id="hinweis-name"></span>
+        </div>
+
+        <div class="field field-wide">
+          <label for="feld-beschreibung">
+            Beschreibung <span class="hint">(optional, max. 2000 Zeichen)</span>
+          </label>
+          <textarea id="feld-beschreibung" maxlength="2000"
+placeholder="Wofür ist dieser Verteiler gedacht? Der Text steht in der Abo-Maske unter dem Namen und hilft den Mitarbeitern bei der Auswahl."></textarea>
+        </div>
+
+        <div class="field field-wide">
+          <label for="feld-pflicht">Pflicht-Verteiler</label>
+          <input type="checkbox" id="feld-pflicht" class="subscribed-check">
+          <span class="hint">
+            Gilt automatisch für alle aktiven Empfänger und ist nicht abbestellbar.
+          </span>
+          <p class="detail-hint">
+            Umschalten löscht keine Abos: Früher angelegte Abo-Zeilen bleiben liegen und werden
+            nur ignoriert, solange der Verteiler Pflicht ist. Nimmst du die Pflicht später
+            zurück, werden sie wieder wirksam.
+          </p>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-primary" id="speichern">Speichern</button>
+        <button type="button" class="btn btn-secondary" id="abbrechen">Abbrechen</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer-links">
+    <a href="/datenschutz.html">Datenschutzhinweis</a>
+  </footer>
+
+  <script src="/app.js"></script>
+  <script src="/verteiler.js"></script>
+</body>
+</html>

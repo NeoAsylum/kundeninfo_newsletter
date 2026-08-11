@@ -11,7 +11,6 @@ import httpx
 
 KEYCLOAK = "http://localhost:8081"
 REALM = "dev"
-ADMIN_ROLE = "stoerungsinfo-admin"
 
 _ENV_FILE = pathlib.Path(__file__).resolve().parents[1] / ".env"
 

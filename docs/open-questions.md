@@ -9,10 +9,11 @@ Dieses Register dokumentiert alle offenen organisatorischen, technischen und reg
 | # | Frage | Adressat | Status | Antworten / Quelle |
 |---|---|---|---|---|
 | A1 | Muss das Pflicht-Topic **alle Mitarbeiter** erreichen oder genügen angemeldete Portal-Nutzer (JIT)? Falls alle: Woher kommt die vollständige Adressliste? | Auftraggeber / Konzern-IT | Offen | Ist in Woche 1 zu klären. |
-| A2 | Wer darf die Versand-Maske nutzen (Entra App-Rolle vs. AD-Gruppe)? | IAM-Team | Offen | `ADMIN_ROLE_VALUE` ist per `.env` konfigurierbar. |
+| A2 | Wer darf die Versand-Maske nutzen? | IAM-Team | **Beantwortet (2026-08-11, Auftraggeber):** weder Entra App-Rolle noch AD-Gruppe — die Berechtigung führt das Portal selbst (`users.is_admin`, ADR-0022). Für das IAM-Team bleibt nur die Authentisierung. | Rollen aus dem Token werden nicht gelesen; `ADMIN_ROLE_VALUE`/`OIDC_ROLES_CLAIM` sind entfallen. |
 | A3 | Welche Absenderadresse (Funktionspostfach) und welches Reply-To-Verhalten sollen Störungsmails haben? | Problemmanagement | Offen | Standard `MAIL_FROM` in `.env` hinterlegt. |
 | A4 | Mengengerüste: Empfänger gesamt, je Topic, Versandhäufigkeit? | Auftraggeber | Offen | Beeinflusst `SMTP_MAX_PER_MINUTE`. |
 | A5 | Welche Verfügbarkeitsanforderung (RTO) gilt für das Portal während Großstörungen? | IT-Betrieb / Risk | Offen | Notfall-Versand-Prozedur in RUNBOOK vorbereitet. |
+| A6 | Soll die **Adminrolle aus dem IdP weiterhin gelten**, oder ist allein das Portal zuständig? | Auftraggeber | **Beantwortet (2026-08-11): allein das Portal.** Umgesetzt in ADR-0022. | **Folgepflicht für den Betrieb:** Ein Offboarding im Verzeichnisdienst entzieht das Adminrecht nicht mehr automatisch — es muss im Portal nachgezogen werden (Empfänger deaktivieren oder Recht entziehen). Gehört in die Betriebsübergabe und in ein Berechtigungsreview. |
 
 ---
 
@@ -30,3 +31,4 @@ Dieses Register dokumentiert alle offenen organisatorischen, technischen und reg
 | B8 | Registry & CI-Runner Verfügbarkeit. | DevOps | Offen |
 | B9 | Change-Prozess & CMDB App-ID Registrierung. | Change Mgmt | Offen |
 | B10 | Security-Freigabe (Pentest / Schwachstellenscan Slots). | InfoSec | Offen |
+| B11 | Aufbewahrung der **für alle sichtbaren Meldungshistorie** (Teilfrage zu B6): Wie lange bleiben versendete Meldungen im Portal lesbar? `dispatches` überlebt die Retention bislang dauerhaft (Datenquelle für Dashboards, ADR-0014) — mit der Leseansicht für alle (ADR-0023) ist das keine reine Betriebsentscheidung mehr. Keine Frist gesetzt, bis B6 beantwortet ist. | DSB / Betriebsrat | Offen |

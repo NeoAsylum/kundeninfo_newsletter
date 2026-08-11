@@ -1,6 +1,6 @@
 # [ADR-0016] Topic-Verwaltung per Seed-Migration + RUNBOOK-SQL statt Admin-CRUD
 
-* **Status:** Akzeptiert
+* **Status:** Abgelöst durch [ADR-0024](0024-verteiler-crud-in-der-oberflaeche.md)
 * **Datum:** 2026-08-10
 * **Kontext:** Das MVP hat exakt die 5 im Sketch vorgegebenen Topics; sie ändern sich selten (Plan 4.3/7.2).
 
@@ -17,3 +17,7 @@ Topics entstehen per idempotenter Seed-Migration (0002). Änderungen (Neuanlage,
 ## Verworfene Alternativen
 
 * **Admin-CRUD im MVP:** halbes Feature mit vollem Aufwand (Validierung, Berechtigungen, Tests, Audit).
+
+## Nachtrag
+
+Der oben benannte Erweiterungspunkt ist eingelöst: Der Auftraggeber hat die Verwaltung angefordert, API **und** UI sind zusammen gebaut — [ADR-0024](0024-verteiler-crud-in-der-oberflaeche.md). Das SQL aus RUNBOOK 6 bleibt als Notfallweg dokumentiert, ist aber nicht mehr der Regelweg.

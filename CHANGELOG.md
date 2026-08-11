@@ -2,6 +2,23 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierung: SemVer light (`v0.x.y` im MVP, `v1.0.0` zum Produktivgang).
 
+## [Unreleased]
+
+### Anwendung
+
+- **Meldungen (für alle):** Nachschlagesicht über die verschickten Störungs- und Entwarnungsmeldungen unter `/meldungen.html`, mit Verteiler-Filter und Blättern. Eigener Endpunkt `GET /api/v1/dispatches` mit reduziertem Schema statt Freigabe der Admin-Historie: keine Empfängerzahlen, keine Zustell-/Fehlerzähler, kein Absender — Zähler wären Auswertungsdaten über Empfänger (ADR-0014), der Absender ein personenbezogenes Datum eines Beschäftigten (ADR-0023). Sichtbar sind nur abgeschlossene Versände, dafür die aller Verteiler (bei einer Großstörung ist der Blick auf das Nachbarsystem der Punkt der Ansicht).
+- **Verteiler-Verwaltung (Admin):** Anlegen, Umbenennen, Beschreibung und Pflicht-Kennzeichen ändern, Deaktivieren/Reaktivieren und Löschen unter `/verteiler.html` — löst die RUNBOOK-SQL-Prozedur als Regelweg ab (ADR-0024, löst ADR-0016 ab). Der Slug bleibt unveränderlich (Primärschlüssel mit Referenzen), Löschen geht nur ohne Versandhistorie (sonst Deaktivieren, die Historie ist unveränderlich), Umbenennen ist bei laufendem Versand gesperrt (der Worker rekonstruiert den Titel über den aktuellen Verteilernamen aus dem Betreff). Jede Änderung im Audit-Log, inklusive der Zahl beim Löschen verlorener Abos.
+- **Rollen-Verwaltung (Admin):** Adminrechte im Portal vergeben und entziehen unter `/rollen.html`. Das Recht steht ab jetzt **allein** in `users.is_admin` (ADR-0022, löst ADR-0013 dafür ab); Rollen aus dem IdP-Token werden nicht mehr gelesen, `OIDC_ROLES_CLAIM` und `ADMIN_ROLE_VALUE` sind entfallen. Ein Entzug wirkt sofort, weil die Autorisierung bei jeder Anfrage die Datenbank liest statt das Session-Cookie — auch gegenüber einem noch gültigen Cookie. Selbstentzug ist gesperrt (Aussperr-Schutz).
+  - **Kehrseite für den Betrieb:** Eine Deaktivierung im Verzeichnisdienst entzieht das Adminrecht nicht mehr von selbst. Offboarding läuft über das Portal (Empfänger deaktivieren oder Recht entziehen).
+  - **Erster Admin:** Migration 0003 übernimmt, wer belegbar bereits als Admin gehandelt hat (Ersteller von Versänden, Akteure im Audit-Log — mit Zeitachsen-Prüfung, weil E-Mail-Adressen recycelt werden). Darüber hinaus `ADMIN_BOOTSTRAP_EMAILS`: gelistete Adressen bekommen beim Login das Recht, aber nur solange kein aktiver Admin existiert. Damit ist die Liste im Normalbetrieb wirkungslos und taugt nicht als Hintertür (RUNBOOK 6b).
+  - Der Schalter `--admin` in `deploy/vm/create-user.sh` und `ops/create_dev_user.py` ist entfallen: Ein IdP-Konto anzulegen vergibt keine Rechte mehr.
+
+### Dokumentation
+
+- Drei neue ADRs (0022 Adminrechte im Portal, 0023 Meldungshistorie für alle, 0024 Verteiler-CRUD); ADR-0016 abgelöst, ADR-0013 teilweise abgelöst, ADR-0017 um die neuen Audit-Aktionen erweitert.
+- RUNBOOK 6 auf die Oberfläche umgeschrieben, SQL bleibt als Notfallweg (ohne Audit-Eintrag); neuer Abschnitt 6b: per SQL wieder an Adminrechte kommen.
+- Betriebsrat-Briefing um die für alle sichtbare Meldungshistorie und die neuen Audit-Aktionen ergänzt; zwei neue Punkte im Fragenregister (Geltung der IdP-Rolle, Aufbewahrung der Lesehistorie).
+
 ## [0.1.0] — MVP mit öffentlichem Pilotbetrieb
 
 Erster funktionsfähiger Stand: Selbstverwaltung der Verteiler statt händisch gepflegter

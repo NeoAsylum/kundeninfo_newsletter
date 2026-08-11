@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rollen verwalten — Störungsinfo-Portal</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/abos.html"><span class="brand-mark">S</span> Störungsinfo-Portal</a>
+      <nav class="topbar-nav" aria-label="Hauptnavigation">
+        <a href="/abos.html" data-page="abos">Meine Abos</a>
+        <a href="/meldungen.html" data-page="meldungen">Meldungen</a>
+        <a href="/versand.html" data-page="versand" id="nav-versand" data-admin-only hidden>Versand</a>
+        <a href="/empfaenger.html" data-page="empfaenger" id="nav-empfaenger" data-admin-only hidden>Empfänger</a>
+        <a href="/verteiler.html" data-page="verteiler" id="nav-verteiler" data-admin-only hidden>Verteiler</a>
+        <a href="/rollen.html" data-page="rollen" id="nav-rollen" data-admin-only hidden>Rollen</a>
+      </nav>
+      <span class="topbar-spacer"></span>
+      <span class="user-chip" id="user-chip" aria-live="polite">…</span>
+      <a class="logout-link" href="#">Abmelden</a>
+    </div>
+  </header>
+
+  <main class="page page-wide">
+    <div class="page-head">
+      <h1>Rollen verwalten</h1>
+      <p>Hier bestimmst du, wer im Portal Adminrechte hat — also Störungsmeldungen
+         versenden sowie Empfänger und Verteiler pflegen darf.</p>
+    </div>
+
+    <div class="search-row">
+      <!-- Bis /me beantwortet ist, kennt das Skript die eigene E-Mail nicht und könnte
+           die eigene Zeile nicht sperren — deshalb startet das Feld gesperrt. -->
+      <input type="text" id="search" maxlength="200" placeholder="Nach E-Mail filtern …"
+             aria-label="Nach E-Mail filtern" disabled>
+      <span class="result-count" id="result-count" aria-live="polite"></span>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="users-table" aria-label="Adminrechte je Empfänger">
+          <thead>
+            <tr>
+              <th>E-Mail</th>
+              <th>Status</th>
+              <th class="col-subscribed">Admin</th>
+            </tr>
+          </thead>
+          <tbody id="users-body">
+            <tr><td colspan="3" class="empty-state">Lade …</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="load-more-row">
+        <button type="button" class="btn btn-secondary" id="load-more" hidden>Mehr laden</button>
+      </div>
+    </div>
+
+    <p class="detail-hint">
+      Diese Liste zeigt die im Portal vergebenen Adminrechte. Wer die Adminrolle aus dem
+      Identity Provider mitbringt, ist ebenfalls Admin — das ist hier nicht sichtbar und
+      lässt sich hier auch nicht entziehen.
+    </p>
+  </main>
+
+  <footer class="footer-links">
+    <a href="/datenschutz.html">Datenschutzhinweis</a>
+  </footer>
+
+  <script src="/app.js"></script>
+  <script src="/rollen.js"></script>
+</body>
+</html>
