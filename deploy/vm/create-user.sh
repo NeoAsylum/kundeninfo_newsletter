@@ -88,9 +88,9 @@ with httpx.Client(timeout=30) as client:
         params={"email": email, "exact": "true"},
     ).json()
 
-    # Nur sperren/freigeben, sonst nichts anfassen
+    # Nur sperren/freigeben, sonst nichts anfassen (sofern kein Passwort-Update angefordert wurde)
     set_enabled = os.environ.get("SET_ENABLED", "")
-    if set_enabled in ("true", "false"):
+    if set_enabled in ("true", "false") and not os.environ.get("NEW_PASSWORD"):
         if not existing:
             print(f"FEHLER: {email} existiert nicht", file=sys.stderr)
             sys.exit(1)
@@ -108,11 +108,14 @@ with httpx.Client(timeout=30) as client:
     if existing:
         user_id = existing[0]["id"]
         username = existing[0]["username"]
-        print(f"Benutzer existiert (id={user_id}) — aktualisiere Name/Passwort/Rolle")
+        print(f"Benutzer existiert (id={user_id}) — aktualisiere Name/Passwort/Status")
+        payload = {"firstName": first_name, "lastName": last_name, "emailVerified": True}
+        if set_enabled in ("true", "false"):
+            payload["enabled"] = set_enabled == "true"
         client.put(
             f"{KC}/admin/realms/{REALM}/users/{user_id}",
             headers=headers,
-            json={"firstName": first_name, "lastName": last_name, "emailVerified": True},
+            json=payload,
         )
     else:
         # registrationEmailAsUsername=true → Benutzername IST die E-Mail
