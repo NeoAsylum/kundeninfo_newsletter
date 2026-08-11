@@ -413,6 +413,24 @@ Wer diese Konfiguration ändert, sollte wissen, warum sie so aussieht:
   exceeded` werden als vorübergehend behandelt, damit der Backoff greift statt alle
   restlichen Empfänger endgültig als fehlgeschlagen zu verbuchen.
 
+### Verteiler `technische-pruefung` — nicht anfassen
+
+Auf der Instanz liegt ein Verteiler „Technischer Prüfversand (nicht abonnieren)" mit
+**genau einem Abonnenten**. Die Verifikation nach einem Deploy versendet darüber, damit
+ein Prüflauf genau **eine** Mail erzeugt.
+
+Warum nicht über einen echten Verteiler: Pflicht-Verteiler lösen auf *alle aktiven
+Empfänger* auf. Sobald sich Fremde selbst registrieren — bei offener Registrierung der
+Normalfall — schickt jeder Prüflauf echte Mails an Menschen, die nichts damit zu tun
+haben. Genau das ist passiert, bevor dieser Verteiler existierte.
+
+Und warum nicht `MAIL_REDIRECT_TO`: Das erzeugt weiterhin eine Mail **je** Empfänger,
+nur alle an dieselbe Adresse — bei 5.000 Abonnenten also 5.000 Mails in ein Postfach.
+
+Zwei Dinge dürfen mit ihm nicht passieren: **nicht abonnieren** und **nicht auf Pflicht
+umstellen**. Beides würde die Empfängerzahl erhöhen. Das Prüfskript verweigert dann den
+Versand und meldet einen Fehlschlag, statt stillschweigend mehr Mails zu verschicken.
+
 ### Bewusst offene Türen dieser Testmaschine
 
 Drei Entscheidungen des Auftraggebers machen die Instanz leichter bedienbar und
