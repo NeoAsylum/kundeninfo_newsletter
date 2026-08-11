@@ -49,6 +49,21 @@ ssh root@<vm> 'cd /opt/stoerungsinfo && \
 Weitere Zugänge anlegen: `bash deploy/vm/create-user.sh <mail> --admin --name "Vor Nach"`
 (ohne `--password` wird eines erzeugt, das beim ersten Anmelden geändert werden muss).
 
+### Betrieb nur bei Bedarf
+
+Die Instanz läuft nicht dauerhaft: Außerhalb von Vorführungen wird der Stack gestoppt —
+das ist die wirksamste Absicherung, weil dann keine Anmeldung, keine Registrierung und
+kein Mailversand möglich sind. Daten bleiben erhalten.
+
+```bash
+ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/demo-mode.sh start'   # vor der Demo
+ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/demo-mode.sh stop'    # danach
+```
+
+`stop` sichert vorher die Datenbanken, `start` erneuert bei Bedarf das Zertifikat — beide
+Cron-Jobs brauchen einen laufenden Stack und kämen bei längeren Pausen sonst nicht zum
+Zug. Cloudflare meldet bei gestopptem Stack **521**, das ist erwartet.
+
 ---
 
 ## ⚡ Quickstart (< 15 Minuten)

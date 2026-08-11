@@ -307,6 +307,32 @@ ssh root@<host> 'cd /opt/stoerungsinfo && docker compose -f compose.yaml \
     -f compose.db.yaml -f compose.public.yaml ps'
 ```
 
+### Demo-Betrieb: Stack nur bei Bedarf laufen lassen
+
+Die wirksamste Absicherung eines öffentlich erreichbaren Portals ist, es außerhalb von
+Vorführungen abzuschalten — ein gestoppter Stack hat keine Angriffsfläche: keine
+Anmeldung, keine Registrierung, kein Mailversand. Die Daten (Abos, Historie, Konten)
+bleiben in den Volumes.
+
+```bash
+bash deploy/vm/demo-mode.sh start    # vor der Demo
+bash deploy/vm/demo-mode.sh stop     # danach
+bash deploy/vm/demo-mode.sh status   # Zustand + letzte Sicherungen
+```
+
+* **`stop`** zieht vorher eine Sicherung — der nächtliche Cron-Job kann bei gestopptem
+  Stack nichts tun, sonst fehlte bei längeren Pausen jede Sicherung.
+* **`start`** prüft die Restlaufzeit des Zertifikats und erneuert bei unter 30 Tagen.
+  Wichtig, weil der Erneuerungs-Cron ebenfalls einen laufenden Stack braucht: Bei
+  mehrmonatiger Pause wäre das Zertifikat sonst unbemerkt abgelaufen.
+* Cloudflare antwortet bei gestopptem Stack mit **521** („Web Server Is Down") — ein
+  normaler Zustand, kein Fehler.
+
+Ist die ganze VM abgeschaltet, kommen Container und Paketfilterregeln beim Start von
+allein zurück (`restart: unless-stopped`, aktivierter Docker-Dienst,
+`stoerungsinfo-firewall.service`). Verifiziert: alle Container nach ~26 Sekunden
+betriebsbereit, Cloudflare-Beschränkung wieder aktiv.
+
 ### Demo-Zugänge (Zugangsdaten zum Weitergeben)
 
 ```bash
