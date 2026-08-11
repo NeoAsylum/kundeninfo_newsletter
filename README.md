@@ -4,6 +4,53 @@ Das Portal **Störungsinfos** ersetzt manuelle Outlook-E-Mail-Verteiler des zent
 
 ---
 
+## 🚀 Live-Instanz (Pilot/Demo)
+
+**https://kunden-stoerungs-info.com**
+
+Öffentlich erreichbarer Pilotbetrieb auf einer eigenen Linux-VM: NGINX mit
+Let’s-Encrypt-Zertifikat, FastAPI-Backend, MariaDB, Keycloak als IdP unter `/idp`,
+echter Mailversand. Vor dem Origin steht Cloudflare (Proxy-Modus); die Server-IP nimmt
+HTTPS ausschließlich aus Cloudflare-Netzen an. Aufbau, Betrieb und Absicherung:
+[docs/RUNBOOK.md](docs/RUNBOOK.md), Abschnitt 3c.
+
+### Demo-Zugang
+
+| | |
+|---|---|
+| Benutzer | `plaaslinkadrian@gmail.com` |
+| Passwort | `Demo-Stoerungsinfo-2026` |
+| Rechte | Mitarbeiter **und** Admin (Abo-Maske, Versand, Empfänger-Verwaltung) |
+
+> ⚠️ **Dieses Repository ist öffentlich.** Damit sind diese Zugangsdaten nach einem
+> `git push` im Netz auffindbar — inklusive der Adresse des Portals, das damit
+> administriert werden kann. Vor dem Push entweder das Repository auf privat
+> umstellen oder das Passwort hier entfernen und separat weitergeben.
+
+**Was der Admin-Zugang kann** — vor der Weitergabe abwägen:
+
+* **alle Empfängeradressen einsehen** (bei offener Selbstregistrierung auch fremde,
+  personenbezogene Adressen),
+* **echte Mails an alle Abonnenten verschicken**, über das konfigurierte Postfach und auf
+  dessen Tageskontingent,
+* **Empfänger deaktivieren** und damit vom Versand ausschließen.
+
+Eingrenzung für Demophasen: `MAIL_REDIRECT_TO=<eigene@adresse>` in der `.env` der VM
+setzen — dann landen alle Mails ausschließlich dort, die Historie zeigt weiterhin die
+gedachten Empfänger, und niemand Fremdes wird angemailt.
+
+Zugang nach der Demo sperren (Abos und Historie bleiben erhalten):
+
+```bash
+ssh root@<vm> 'cd /opt/stoerungsinfo && \
+    bash deploy/vm/create-user.sh plaaslinkadrian@gmail.com --disable'
+```
+
+Weitere Zugänge anlegen: `bash deploy/vm/create-user.sh <mail> --admin --name "Vor Nach"`
+(ohne `--password` wird eines erzeugt, das beim ersten Anmelden geändert werden muss).
+
+---
+
 ## ⚡ Quickstart (< 15 Minuten)
 
 ### Voraussetzungen
@@ -102,6 +149,33 @@ Wichtige Parameter:
 | Windows CRLF Skriptfehler | Git hat CRLF in Shell-Skripte eingefügt | Git-Attribute prüfen; `dos2unix backend/scripts/entrypoint.sh` ausführen. |
 | `403 CSRF Error` bei API-Requests | Header `X-Requested-With` fehlt | Bei manuellen REST-Calls Header `X-Requested-With: fetch` mitsenden. |
 | Session abgelaufen / 401 | Secret geändert oder Cookie abgelaufen | Neu über `/auth/login` anmelden oder Cookie im Browser löschen. |
+
+---
+
+## 🌍 Öffentlich deployen
+
+Der Pilotbetrieb im Internet läuft über ein eigenes Compose-Overlay
+(`compose.public.yaml`) und drei Skripte — vollständige Anleitung inklusive
+Absicherung in [docs/RUNBOOK.md](docs/RUNBOOK.md) Abschnitt 3c:
+
+```bash
+# 1. VM grundausstatten: Docker, Swap, Firewall, SSH nur per Schlüssel, fail2ban
+scp deploy/vm/bootstrap.sh root@<vm>:/tmp/ && ssh root@<vm> bash /tmp/bootstrap.sh
+
+# 2. DNS: A-Record der Domain auf die VM-IP (bei Cloudflare zunächst "DNS only",
+#    sonst schlägt die Zertifikatsausstellung fehl)
+
+# 3. Ausrollen: erzeugt .env mit frischen Secrets, legt die Keycloak-Datenbank an,
+#    holt das Zertifikat, konfiguriert den Realm auf die öffentliche Adresse
+ssh root@<vm> 'cd /opt/stoerungsinfo && export PUBLIC_HOST=<domain> ACME_EMAIL=<mail> \
+    SMTP_HOST=… SMTP_USER=… SMTP_PASSWORD=… MAIL_FROM=… && bash deploy/vm/deploy.sh'
+
+# 4. Origin auf Cloudflare beschränken (erst NACH dem Umschalten auf Proxy-Modus)
+ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/firewall.sh'
+```
+
+Alle Skripte sind idempotent. Nach jeder Firewall-Änderung drei Wege prüfen:
+Direktzugriff auf die IP muss scheitern, die Domain muss antworten, SSH muss gehen.
 
 ---
 
