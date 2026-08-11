@@ -66,8 +66,8 @@ with httpx.Client(timeout=30) as client:
         "registrationEmailAsUsername": True,
         "loginWithEmailAllowed": True,
         "resetPasswordAllowed": True,
-        # Bestätigungsmail: verhindert Registrierung mit fremden Adressen
-        "verifyEmail": True,
+        # Bestätigungsmail: Für Demos deaktiviert (Instant-Login nach Registrierung ohne Wartezeit)
+        "verifyEmail": False,
         # Brute-Force-Schutz: bei öffentlichem Login unverzichtbar
         "bruteForceProtected": True,
         "permanentLockout": False,
