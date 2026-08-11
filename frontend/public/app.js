@@ -78,6 +78,29 @@ const App = {
     document.querySelectorAll(".topbar-nav a").forEach((link) => {
       if (link.dataset.page === activePage) link.classList.add("active");
     });
+
+    // Mobile Navigation Toggle (ADR-0006 Responsive UI)
+    const toggleBtn = document.getElementById("nav-toggle");
+    const menuEl = document.getElementById("topbar-menu");
+    if (toggleBtn && menuEl) {
+      toggleBtn.onclick = (e) => {
+        e.stopPropagation();
+        const isOpen = menuEl.classList.toggle("is-open");
+        toggleBtn.classList.toggle("is-active", isOpen);
+        toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        toggleBtn.setAttribute("aria-label", isOpen ? "Menü schließen" : "Menü öffnen");
+      };
+
+      document.addEventListener("click", (evt) => {
+        if (menuEl.classList.contains("is-open") && !menuEl.contains(evt.target) && !toggleBtn.contains(evt.target)) {
+          menuEl.classList.remove("is-open");
+          toggleBtn.classList.remove("is-active");
+          toggleBtn.setAttribute("aria-expanded", "false");
+          toggleBtn.setAttribute("aria-label", "Menü öffnen");
+        }
+      });
+    }
+
     return me;
   },
 

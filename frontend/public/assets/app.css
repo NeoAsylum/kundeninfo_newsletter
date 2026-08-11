@@ -31,20 +31,24 @@ body {
   line-height: 1.5;
 }
 
-/* ---------- Kopfzeile ---------- */
+/* ---------- Kopfzeile & Responsive Navigation ---------- */
 
 .topbar {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .topbar-inner {
   max-width: 1160px;
   margin: 0 auto;
-  padding: 14px 24px;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   gap: 20px;
+  position: relative;
 }
 
 .brand {
@@ -55,6 +59,7 @@ body {
   font-size: 1.05rem;
   color: var(--text);
   text-decoration: none;
+  flex-shrink: 0;
 }
 
 .brand-mark {
@@ -70,6 +75,13 @@ body {
   font-weight: 700;
 }
 
+.topbar-menu {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+}
+
 .topbar-nav {
   display: flex;
   gap: 4px;
@@ -79,15 +91,22 @@ body {
 .topbar-nav a {
   color: var(--text-muted);
   text-decoration: none;
-  padding: 6px 12px;
+  padding: 8px 14px;
   border-radius: 8px;
   font-size: 0.92rem;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .topbar-nav a:hover { background: var(--surface-muted); color: var(--text); }
 .topbar-nav a.active { background: #e8effa; color: var(--primary); font-weight: 600; }
 
 .topbar-spacer { flex: 1; }
+
+.topbar-user-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
 .user-chip {
   font-size: 0.85rem;
@@ -99,7 +118,165 @@ body {
   white-space: nowrap;
 }
 
-.logout-link { font-size: 0.85rem; color: var(--text-muted); }
+.logout-link {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.logout-link:hover { color: var(--danger); background: #fdf1ef; }
+
+/* Mobile Menu Toggle Button (Hamburger) */
+.nav-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  margin-left: auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.nav-toggle:hover, .nav-toggle.is-active {
+  background: var(--surface-muted);
+  border-color: var(--primary);
+}
+
+.nav-toggle-bar {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--text);
+  border-radius: 2px;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.nav-toggle.is-active .nav-toggle-bar:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+
+.nav-toggle.is-active .nav-toggle-bar:nth-child(2) {
+  opacity: 0;
+}
+
+.nav-toggle.is-active .nav-toggle-bar:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
+
+/* Responsives Layout für Mobilgeräte (Breite < 860px) */
+@media (max-width: 860px) {
+  .topbar-inner {
+    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
+
+  .nav-toggle {
+    display: flex;
+  }
+
+  .topbar-menu {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 0 8px;
+    border-top: 1px solid var(--border);
+    margin-top: 6px;
+  }
+
+  .topbar-menu.is-open {
+    display: flex;
+    animation: fadeInSlideDown 0.2s ease-out;
+  }
+
+  .topbar-nav {
+    flex-direction: column;
+    gap: 4px;
+    margin-left: 0;
+  }
+
+  .topbar-nav a {
+    padding: 10px 14px;
+    font-size: 0.98rem;
+    display: block;
+    width: 100%;
+  }
+
+  .topbar-spacer {
+    display: none;
+  }
+
+  .topbar-user-area {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    margin-top: 4px;
+  }
+
+  .user-chip {
+    text-align: center;
+    width: 100%;
+  }
+
+  .logout-link {
+    text-align: center;
+    padding: 10px;
+    background: var(--surface-muted);
+    border-radius: 8px;
+    color: var(--danger);
+    font-weight: 500;
+  }
+
+  .page {
+    padding: 20px 16px 48px;
+  }
+
+  .page-head h1 {
+    font-size: 1.2rem;
+  }
+
+  .card {
+    border-radius: 8px;
+  }
+
+  .search-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .search-row .result-count {
+    margin-left: 0;
+  }
+
+  .users-table-wrap, .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@keyframes fadeInSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 /* ---------- Seitenlayout ---------- */
 
