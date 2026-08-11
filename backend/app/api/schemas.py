@@ -29,7 +29,16 @@ class RecipientCountOut(BaseModel):
 class DispatchDraft(BaseModel):
     topic_id: str
     severity: SeverityLiteral
-    title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
+    # Keine Steuerzeichen im Titel: Er landet im Betreff, und ein Zeilenumbruch dort
+    # laesst EmailMessage beim Bauen JEDER einzelnen Mail scheitern. Der Versand liefe
+    # fuer jeden Empfaenger in einen permanenten Fehler — bemerkt erst im Worker, also
+    # nachdem der Auftrag angelegt ist. Hier ist die Stelle, an der man es dem
+    # Verfasser noch sagen kann.
+    title: str = Field(
+        min_length=1,
+        max_length=TITLE_MAX_LENGTH,
+        pattern=r"^[^\r\n\t\x00-\x1f]+$",
+    )
     body: str = Field(min_length=1, max_length=100_000)
 
 

@@ -48,6 +48,9 @@ DB_NAME=newsletter
 DB_USER=app
 DB_PASSWORD=$(secret)
 DB_ROOT_PASSWORD=$(secret)
+# Eigenes Konto für Keycloak — die Anwendung bekommt keinen Zugriff auf dessen
+# Datenbank und umgekehrt (Passwort-Hashes aller Konten liegen dort).
+KC_DB_PASSWORD=$(secret)
 DATABASE_URL=mysql+aiomysql://app:__DB_PASSWORD__@mariadb:3306/newsletter
 
 OIDC_ISSUER_URL=https://${PUBLIC_HOST}/idp/realms/dev
@@ -128,6 +131,13 @@ else
         echo "ADMIN_BOOTSTRAP_EMAILS=\"${ADMIN_BOOTSTRAP_EMAILS:-${ACME_EMAIL}}\"" >> .env
         echo "    ADMIN_BOOTSTRAP_EMAILS ergaenzt"
     fi
+    # MUSS vor dem ersten Compose-Aufruf stehen: compose.public.yaml verlangt die
+    # Variable mit :? und wertet das schon beim Parsen aus, also auch bei
+    # `up -d mariadb`. Eine Erzeugung weiter unten käme zu spät.
+    if ! grep -q '^KC_DB_PASSWORD=' .env; then
+        echo "KC_DB_PASSWORD=$(secret)" >> .env
+        echo "    KC_DB_PASSWORD erzeugt (eigenes DB-Konto fuer Keycloak)"
+    fi
     # Entfallene Schlüssel kenntlich machen. Die .env ist laut CLAUDE.md die einzige
     # Konfig-Wahrheit — ein stehengelassenes ADMIN_ROLE_VALUE behauptet dort, eine
     # IdP-Rolle vergebe Adminrechte, und schickt die Fehlersuche in die falsche
@@ -152,13 +162,21 @@ for i in $(seq 1 30); do
     fi
     sleep 3
 done
+# Eigener Benutzer für Keycloak statt des Anwendungskontos: Sonst reicht eine
+# Lücke im internetseitigen api-Container bis in Keycloaks credential-Tabelle
+# (Passwort-Hashes aller Konten). Die beiden Datenbanken haben nichts miteinander
+# zu tun — der Anwendungsbenutzer braucht keinen Zugriff auf 'keycloak' und
+# umgekehrt.
 docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml exec -T mariadb \
     mariadb -u root -p"$DB_ROOT_PASSWORD" -e "
         CREATE DATABASE IF NOT EXISTS keycloak
             CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-        GRANT ALL ON keycloak.* TO '${DB_USER}'@'%';
+        CREATE USER IF NOT EXISTS 'keycloak'@'%' IDENTIFIED BY '${KC_DB_PASSWORD}';
+        ALTER USER 'keycloak'@'%' IDENTIFIED BY '${KC_DB_PASSWORD}';
+        GRANT ALL ON keycloak.* TO 'keycloak'@'%';
+        REVOKE ALL PRIVILEGES ON keycloak.* FROM '${DB_USER}'@'%';
         FLUSH PRIVILEGES;"
-echo "    Datenbank 'keycloak' bereit"
+echo "    Datenbank 'keycloak' bereit (eigener Benutzer, App-Konto hat keinen Zugriff)"
 
 log "Sicherung vor dem Ausrollen"
 # Migrationen laufen beim Start des api-Containers automatisch. Vorher ein Dump,
@@ -253,6 +271,10 @@ if [ -n "$ADMINS" ]; then
     echo "$ADMINS" | sed 's/^/    /'
 else
     echo "    KEIN aktiver Admin in der Datenbank." >&2
+    echo "    ACHTUNG: Solange fuer die Bootstrap-Adresse KEIN IdP-Konto existiert," >&2
+    echo "    kann sich jeder ueber die offene Registrierung diese Adresse nehmen und" >&2
+    echo "    wird damit Admin. Jetzt anmelden oder das Konto anlegen:" >&2
+    echo "      bash deploy/vm/create-user.sh <bootstrap-adresse>" >&2
     echo "    Der erste Login einer Adresse aus ADMIN_BOOTSTRAP_EMAILS erhält das Recht:" >&2
     grep "^ADMIN_BOOTSTRAP_EMAILS=" .env | sed 's/^/      /' >&2
     echo "    Existiert dafuer kein IdP-Konto: create-user.sh <mail>, dann anmelden." >&2

@@ -46,7 +46,7 @@ Eine Codebasis, fünf Overlays — welche kombiniert werden, steuert das `Makefi
 | `compose.yaml` | `nginx`, `api`, internes Netzwerk `appnet`, Healthchecks | Basis-Definition |
 | `compose.db.yaml` | `mariadb` mit persistentem Volume `db_data` | DEV und PROD vor dem DB-Cutover |
 | `compose.dev.yaml` | `keycloak` (Realm-Import), `mailpit`, `mariadb-test` (tmpfs) | DEV-Mocks & Test-Services |
-| `compose.prod.yaml` | Resource-Limits, Log-Rotation, Restart-Policy, TLS-Mounts aus der Konzern-PKI | Zielbild Konzern |
+| `compose.prod.yaml` | Resource-Limits, Log-Rotation, Restart-Policy, TLS-Mounts aus der Konzern-PKI, `PUBLIC_HOST` für den Serverblock | Zielbild Konzern |
 | `compose.public.yaml` | Öffentlicher Pilot: Let's-Encrypt-Zertbot, Keycloak unter `/idp`, engere Speicherlimits | Demo-Instanz im Internet |
 
 `compose.prod.yaml` und `compose.public.yaml` schließen sich aus — sie beschreiben zwei

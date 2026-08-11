@@ -64,6 +64,14 @@ def upgrade() -> None:
     # `user-<id>@invalid.archiviert` um und die NEUE Zeile trägt die Adresse. Ein
     # reiner Adressvergleich würde diese Person zum Admin machen, ohne dass sie es
     # je war. Deshalb die Zeitachse: Wer gehandelt hat, existierte davor.
+    #
+    # Diese Absicherung ruht auf einer Annahme, die man kennen muss: Es gibt keinen
+    # Weg, die Adresse eines BESTEHENDEN Kontos zu aendern (die Keycloak-Account-
+    # Konsole ist per NGINX-Allowlist auf 404, UPDATE_EMAIL ist nicht aktiviert, und
+    # kein Portal-Endpunkt schreibt users.email). Eine Neuregistrierung erzeugt
+    # dagegen einen neuen oidc_sub und damit eine Zeile mit aktuellem created_at —
+    # dann greift die Bedingung. Wer die Account-Konsole spaeter freischaltet,
+    # hebelt diesen Schutz rueckwirkend aus.
     conn.execute(
         sa.text(
             "UPDATE users u SET u.is_admin = 1 WHERE EXISTS ("

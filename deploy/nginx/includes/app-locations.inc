@@ -7,6 +7,12 @@
 # unterlaufen ließen.
 
 location /api/ {
+    # Auch API-Antworten bekommen die Sicherheits-Header. Sie werden bewusst NICHT
+    # serverweit gesetzt (das überschriebe die Header der durchgereichten
+    # Keycloak-Seiten), aber jede Antwort, die aus DIESER Anwendung kommt, soll sie
+    # tragen — insbesondere nosniff, damit eine JSON-Antwort nirgends als HTML
+    # interpretiert werden kann.
+    include /etc/nginx/includes/security-headers.inc;
     proxy_pass http://api:8000;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -18,6 +24,7 @@ location /api/ {
 }
 
 location /auth/ {
+    include /etc/nginx/includes/security-headers.inc;
     proxy_pass http://api:8000;
     proxy_http_version 1.1;
     proxy_set_header Connection "";

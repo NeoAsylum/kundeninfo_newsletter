@@ -79,6 +79,25 @@ ufw allow 443/tcp comment 'HTTPS' >/dev/null
 ufw --force enable >/dev/null
 echo "    SSH mit Verbindungsbremse, 80/443 offen (Feinsteuerung folgt in $CHAIN)"
 
+# --- IPv6 zusätzlich in INPUT sperren ----------------------------------------
+# Zweiter Riegel zum 0.0.0.0-Binding in compose.public.yaml: Sollte ein Container
+# doch einmal auf [::] gebunden werden, bedient der userland docker-proxy diese
+# Verbindungen über INPUT — die Kette $CHAIN in DOCKER-USER (FORWARD) sieht sie nie.
+# Ohne diese Regeln stünde der Origin über IPv6 offen im Netz, während die
+# IPv4-Prüfung Erfolg meldet. Die ip6tables-Kette unten bleibt als Absicherung für
+# den Fall, dass Docker später doch über DNAT zustellt (userland-proxy=false).
+log "IPv6 in INPUT sperren"
+# Bewusst NICHT über ufw: `ufw deny 443/tcp` unterscheidet nicht zwischen den
+# Adressfamilien und würde die bestehende ALLOW-Regel für IPv4 gleich mit ersetzen —
+# das nähme im Zweifel die Seite vom Netz. ip6tables trifft nur IPv6.
+for regel in \
+    "INPUT -p tcp -m tcp --dport 443 -j DROP" \
+    "INPUT -p tcp -m tcp --dport 80 -j DROP"; do
+    # shellcheck disable=SC2086
+    ip6tables -C $regel 2>/dev/null || ip6tables -I $regel
+done
+echo "    IPv6 auf 80/443 verworfen (Zugriff läuft über Cloudflare per IPv4)"
+
 # --- Eigene Kette für die Cloudflare-Beschränkung ----------------------------
 setup_chain() {
     ipt="$1"; url="$2"; cache="$3"
@@ -148,6 +167,35 @@ log "Ergebnis"
 iptables -L "$CHAIN" -n | head -4
 echo "    …"
 echo
-echo "Prüfen: curl -sk --max-time 8 https://$(curl -fsS --max-time 10 https://api.ipify.org)/healthz"
-echo "        (muss ins Timeout laufen — direkter Zugriff ist gesperrt)"
-echo "        curl -s https://<domain>/healthz   (muss 200 liefern)"
+log "Selbstprüfung (soweit von hier möglich)"
+# WICHTIG: Die IPv4-Beschränkung ist von der VM aus NICHT messbar. Eine Anfrage an
+# die eigene öffentliche Adresse stellt der Kernel lokal zu; sie durchläuft weder
+# FORWARD noch $CHAIN und antwortet deshalb immer. Ein Test von hier würde also
+# entweder falschen Alarm schlagen oder falsche Sicherheit geben — beides ist
+# schlimmer als keine Prüfung. Für IPv6 gilt das nicht: Dort existiert nach der
+# Umstellung auf 0.0.0.0-Bindings gar kein Listener mehr, ein lokaler Versuch
+# scheitert also aus demselben Grund wie ein entfernter.
+V6="$(ip -6 addr show scope global 2>/dev/null \
+      | sed -n 's|.*inet6 \([0-9a-f:]*\)/.*|\1|p' | head -1)"
+if [ -n "$V6" ]; then
+    if curl -6 -sk --max-time 8 -o /dev/null "https://[$V6]/healthz" 2>/dev/null; then
+        echo "    FEHLER: Der Origin antwortet über IPv6 ($V6) direkt." >&2
+        echo "    Cloudflare ist damit umgehbar. Prüfen: bindet Docker auf [::]?" >&2
+        echo "      ss -tlnp | grep :443     (darf nur 0.0.0.0 zeigen)" >&2
+        exit 1
+    fi
+    echo "    IPv6 ($V6): kein direkter Zugriff — richtig"
+else
+    echo "    IPv6: keine globale Adresse, nichts zu sperren"
+fi
+
+echo
+echo "Von AUSSEN prüfen (nicht von dieser VM aus, siehe oben):"
+echo "  curl -4 -sk --max-time 8 https://$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null)/healthz"
+echo "      → muss ins Timeout laufen"
+if [ -n "$V6" ]; then
+    echo "  curl -6 -sk --max-time 8 https://[$V6]/healthz"
+    echo "      → muss ins Timeout laufen oder die Verbindung verweigern"
+fi
+echo "Noch prüfen: curl -s https://<domain>/healthz   (muss 200 liefern)"
+echo "             ssh root@<vm> 'echo ok'            (muss weiter gehen)"

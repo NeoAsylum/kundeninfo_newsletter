@@ -18,9 +18,18 @@ services:
       # Hostname für Serverblock und Zertifikatspfad (aus PUBLIC_BASE_URL abgeleitet,
       # gesetzt von deploy/vm/deploy.sh)
       PUBLIC_HOST: ${PUBLIC_HOST:?PUBLIC_HOST fehlt (z. B. kunden-stoerungs-info.com)}
+    # 0.0.0.0 ist hier SICHERHEITSRELEVANT, nicht kosmetisch: Ohne die explizite
+    # Adresse bindet Docker zusätzlich [::]:443. Diese IPv6-Verbindungen bedient der
+    # userland docker-proxy auf dem Host, sie laufen also über INPUT und berühren die
+    # Kette DOCKER-USER nie — genau dort steht aber die Beschränkung auf
+    # Cloudflare-Bereiche (deploy/vm/firewall.sh). Ergebnis war ein Origin, der über
+    # IPv6 direkt erreichbar blieb, obwohl IPv4 korrekt gesperrt war; nachgemessen mit
+    # curl --resolve auf die Origin-IPv6: HTTP 200 statt Timeout. Zusätzlich ersetzt
+    # der docker-proxy die Quelladresse durch das Docker-Gateway, womit alle
+    # Ratenlimits und der Keycloak-Brute-Force-Zähler auf einen Schlüssel kollabieren.
     ports:
-      - "80:80"
-      - "443:443"
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
     restart: unless-stopped
     cpus: "0.5"
     mem_limit: 96m
@@ -115,8 +124,11 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD fehlt}
       KC_DB: mariadb
       KC_DB_URL: jdbc:mariadb://mariadb:3306/keycloak
-      KC_DB_USERNAME: ${DB_USER:-app}
-      KC_DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt}
+      # Eigenes Konto, nicht das der Anwendung: Eine Lücke im api-Container soll
+      # nicht bis an Keycloaks Passwort-Hashes reichen (deploy/vm/deploy.sh legt
+      # den Benutzer an und entzieht dem App-Konto die Rechte auf 'keycloak').
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD fehlt (deploy.sh erzeugt es)}
       # Öffentliche Adresse; NGINX reicht /idp durch (relative path)
       KC_HOSTNAME: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL fehlt}/idp
       KC_HTTP_RELATIVE_PATH: /idp

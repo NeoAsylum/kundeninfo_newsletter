@@ -365,6 +365,14 @@ curl -s https://<domain>/healthz                       # muss 200 liefern
 ssh root@<server-ip> 'echo ok'                         # muss funktionieren
 ```
 
+> **Warum die Ports in `compose.public.yaml` auf `0.0.0.0` gebunden sind:** Ohne die
+> explizite Adresse bindet Docker zusätzlich `[::]`. Diese IPv6-Verbindungen bedient der
+> userland `docker-proxy` über INPUT — an der Kette in `DOCKER-USER` (FORWARD) vorbei,
+> in der die Cloudflare-Beschränkung steht. Der Origin war dadurch über IPv6 direkt
+> erreichbar, während die IPv4-Prüfung Erfolg meldete. Wer die Ports-Zeile ändert,
+> öffnet das wieder. Gegenprobe gehört von AUSSEN gefahren, nicht von der VM:
+> `curl -6 -sk --max-time 8 https://[<origin-v6>]/healthz` muss scheitern.
+
 **Cloudflare-Bereiche aktualisieren** (Cloudflare ändert sie selten, aber nicht nie —
 danach zeigten Ratenlimits und Logs auf Proxy-Adressen statt auf Nutzer):
 
