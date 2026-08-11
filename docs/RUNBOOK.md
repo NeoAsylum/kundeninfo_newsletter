@@ -294,6 +294,15 @@ bash deploy/vm/create-user.sh <mail> --disable
 bash deploy/vm/create-user.sh <mail> --enable    # wieder freigeben
 ```
 
+`--disable` sperrt die Anmeldung im IdP **und** setzt `users.is_active = 0` im Portal.
+Beides muss zusammenlaufen: Ein nur im IdP gesperrter Admin bliebe für die Anwendung
+ein *aktiver* Admin und würde den Notausgang `ADMIN_BOOTSTRAP_EMAILS` dauerhaft
+blockieren (der greift nur, solange kein aktiver Admin existiert) — wer den letzten
+Admin nach einer Demo sperrt, hätte sonst ein Portal, das sich nur per SQL wieder
+öffnen lässt. Ein etwaiges Adminrecht bleibt gesetzt, zählt aber nicht mehr als aktiv.
+Meldet sich die Person später wieder an, reaktiviert das JIT-Provisioning die Zeile
+(ADR-0010).
+
 **Was ein Admin-Zugang kann** — vor der Weitergabe abwägen:
 
 * **Alle Empfängeradressen einsehen** (Empfänger-Maske). Wer den Zugang bekommt, sieht
@@ -395,6 +404,25 @@ Wer diese Konfiguration ändert, sollte wissen, warum sie so aussieht:
 * **Tageskontingent des Mailkontos**: Meldungen wie `550 5.4.5 Daily user sending limit
   exceeded` werden als vorübergehend behandelt, damit der Backoff greift statt alle
   restlichen Empfänger endgültig als fehlgeschlagen zu verbuchen.
+
+### Weg zurück, wenn ein Deploy schiefgeht
+
+Es gibt **kein** Image-Rollback: `IMAGE_TAG` bleibt `local` (auf der VM liefert
+`git describe` nichts, weil der Transport `.git` ausschließt), der Neubau nimmt dem
+alten Image den Tag, und `docker image prune` räumt es am Ende weg. Der Weg zurück ist
+deshalb zweiteilig:
+
+1. **Daten:** Der Dump, den `deploy.sh` vor dem Ausrollen zieht (siehe Abschnitt 3
+   für das Einspielen). Er entsteht immer, wenn Nutzerdatensätze vorhanden sind —
+   unabhängig davon, ob der Stack lief.
+2. **Code:** Den vorigen Stand erneut hochladen (`tar`-Schritt aus „Aufbau von null",
+   Schritt 3) und `deploy.sh` nochmals laufen lassen. Deshalb lohnt es sich, das
+   Archiv des letzten funktionierenden Stands aufzubewahren:
+   `cp /tmp/app.tgz /root/app-$(date +%F).tgz`.
+
+Bis dahin liefert NGINX 502, sobald der api-Container nicht startet. Der schnellste
+Zwischenschritt ist `demo-mode.sh stop` — dann ist die Instanz sauber aus statt halb
+kaputt.
 
 ### Offene Punkte für diese Instanz
 

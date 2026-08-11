@@ -128,6 +128,17 @@ else
         echo "ADMIN_BOOTSTRAP_EMAILS=\"${ADMIN_BOOTSTRAP_EMAILS:-${ACME_EMAIL}}\"" >> .env
         echo "    ADMIN_BOOTSTRAP_EMAILS ergaenzt"
     fi
+    # Entfallene Schlüssel kenntlich machen. Die .env ist laut CLAUDE.md die einzige
+    # Konfig-Wahrheit — ein stehengelassenes ADMIN_ROLE_VALUE behauptet dort, eine
+    # IdP-Rolle vergebe Adminrechte, und schickt die Fehlersuche in die falsche
+    # Richtung. Genau dann, wenn niemand Admin ist und es schnell gehen muss.
+    for veraltet in OIDC_ROLES_CLAIM ADMIN_ROLE_VALUE SMTP_OAUTH_TENANT \
+        SMTP_OAUTH_CLIENT_ID SMTP_OAUTH_REFRESH_TOKEN SMTP_OAUTH_SCOPE; do
+        if grep -q "^${veraltet}=" .env; then
+            sed -i "s|^${veraltet}=|# entfallen, wirkungslos (ADR-0022/0012): ${veraltet}=|" .env
+            echo "    ${veraltet} als entfallen markiert"
+        fi
+    done
 fi
 set -a; . ./.env; set +a
 
@@ -152,22 +163,31 @@ echo "    Datenbank 'keycloak' bereit"
 log "Sicherung vor dem Ausrollen"
 # Migrationen laufen beim Start des api-Containers automatisch. Vorher ein Dump,
 # damit ein fehlgeschlagener Schemawechsel nicht ohne Rückfahrkarte dasteht.
-if $COMPOSE ps --status running --quiet api 2>/dev/null | grep -q .; then
+#
+# Entscheidend ist, ob DATEN da sind — nicht, ob der api-Container läuft. Der
+# Demo-Betrieb lässt den Stack ausserhalb von Vorführungen bewusst gestoppt
+# (demo-mode.sh stop); die Prüfung auf einen laufenden api-Container hätte genau
+# dann "Erstinstallation" gemeldet und die Sicherung übersprungen, obwohl in
+# db_data echte Konten, Abos und Versandhistorie liegen. mariadb läuft hier schon.
+BESTAND="$($COMPOSE exec -T mariadb sh -c \
+    'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" -N -B \
+     -e "SELECT COUNT(*) FROM newsletter.users"' 2>/dev/null | tr -d '\r' || echo 0)"
+case "$BESTAND" in '' | *[!0-9]*) BESTAND=0 ;; esac
+
+if [ "$BESTAND" -gt 0 ]; then
+    echo "    ${BESTAND} Nutzerdatensätze vorhanden — Sicherung wird gezogen"
     if bash "$(dirname "$0")/../../ops/backup.sh"; then
         echo "    Sicherung erstellt"
     else
         echo "    WARNUNG: Sicherung fehlgeschlagen — Ausrollen wird fortgesetzt" >&2
+        echo "    Bei einem Schemawechsel gibt es dann keinen Rückfahrschein." >&2
     fi
 else
-    echo "    Erstinstallation, keine Sicherung nötig"
+    echo "    Datenbank ist leer (Erstinstallation) — keine Sicherung nötig"
 fi
 
 log "Restliche Container starten"
 $COMPOSE up -d --build
-
-log "Aufräumen (Platte)"
-docker image prune -f >/dev/null 2>&1 || true
-docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 || true
 
 # --- 3. Zertifikat ------------------------------------------------------------
 CERT_PATH="/etc/letsencrypt/live/${PUBLIC_HOST}/fullchain.pem"
@@ -221,6 +241,24 @@ fi
 bash "$(dirname "$0")/configure-realm.sh"
 
 # --- 5. Ergebnis --------------------------------------------------------------
+# Seit ADR-0022 kommen Adminrechte allein aus der Datenbank. Bleibt nach dem
+# Ausrollen niemand übrig, ist das Portal ohne Fehlermeldung unbedienbar — deshalb
+# hier ausdrücklich zählen und im Zweifel die Bootstrap-Adresse nennen.
+log "Adminrechte"
+ADMINS="$($COMPOSE exec -T mariadb sh -c \
+    'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" -N -B \
+     -e "SELECT email FROM newsletter.users WHERE is_admin = 1 AND is_active = 1"' \
+    2>/dev/null | tr -d '\r' || true)"
+if [ -n "$ADMINS" ]; then
+    echo "$ADMINS" | sed 's/^/    /'
+else
+    echo "    KEIN aktiver Admin in der Datenbank." >&2
+    echo "    Der erste Login einer Adresse aus ADMIN_BOOTSTRAP_EMAILS erhält das Recht:" >&2
+    grep "^ADMIN_BOOTSTRAP_EMAILS=" .env | sed 's/^/      /' >&2
+    echo "    Existiert dafuer kein IdP-Konto: create-user.sh <mail>, dann anmelden." >&2
+    echo "    Notweg ohne Anmeldung: RUNBOOK 6b (SQL)." >&2
+fi
+
 log "Status"
 $COMPOSE ps --format 'table {{.Service}}\t{{.Status}}'
 echo
@@ -229,6 +267,14 @@ echo
 echo "Portal:  https://${PUBLIC_HOST}/abos.html"
 echo "Health:  https://${PUBLIC_HOST}/healthz"
 echo
+# Erst hier aufräumen, nicht direkt nach dem Build: Bricht der Deploy zwischen
+# Build und Zertifikats-/Realm-Schritt ab, bleibt das vorige Image so noch ein paar
+# Minuten als dangling image liegen und lässt sich per `docker images -a` finden.
+# Ein echtes Rollback ist es nicht — der Weg zurück steht in RUNBOOK 3c.
+log "Aufräumen (Platte)"
+docker image prune -f >/dev/null 2>&1 || true
+docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 || true
+
 echo "Keycloak-Adminkonsole ist NICHT öffentlich (bewusst)."
 echo "Zugriff per Tunnel:  ssh -L 8081:localhost:8081 root@<vm>  →  http://localhost:8081/idp/"
 echo "Zugangsdaten stehen in ${REPO_DIR}/.env (KEYCLOAK_ADMIN*)."

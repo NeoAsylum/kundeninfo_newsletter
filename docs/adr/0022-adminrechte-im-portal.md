@@ -70,6 +70,17 @@ es vergeben könnte. Dafür gibt es zwei Wege, beide bewusst schmal:
    Liste ignoriert; ist keiner mehr übrig, greift sie wieder — das ist der Notfall, für den
    sie gedacht ist. Prozedur: [RUNBOOK 6b](../RUNBOOK.md).
 
+**Grenze, die man kennen muss:** Der Bootstrap entscheidet anhand der E-Mail-Adresse
+aus dem Token und prüft `email_verified` nicht. Damit ist er nur so stark wie die
+Registrierungseinstellung des IdP: Steht `verifyEmail` auf `false` und ist die
+Selbstregistrierung offen, könnte sich jemand mit einer gelisteten Adresse anmelden —
+allerdings nur zu dem Zeitpunkt, an dem ohnehin kein aktiver Admin existiert. Das ist
+bewusst nicht abgesichert: Eine harte Forderung nach `email_verified` würde genau den
+Notausgang unbrauchbar machen, für den er gedacht ist (bei einer Aussperrung ist
+niemand da, der eine Bestätigungsmail freischalten könnte). Wer die Instanz öffentlich
+betreibt, hält deshalb entweder `verifyEmail` an oder trägt in
+`ADMIN_BOOTSTRAP_EMAILS` nur Adressen ein, die im IdP schon ein Konto haben.
+
 Wer ein IdP-Konto anlegt, vergibt damit **keine** Rechte mehr. Der Schalter `--admin` in
 `deploy/vm/create-user.sh` und `ops/create_dev_user.py` ist deshalb entfallen, statt eine
 Realm-Rolle ohne Wirkung zu setzen — ein Schalter, der scheinbar funktioniert, wäre

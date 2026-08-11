@@ -46,6 +46,14 @@ services:
     # Nur die tatsächlich benötigten Variablen statt der kompletten .env: Der
     # internetseitige Container braucht weder DB_ROOT_PASSWORD noch die
     # Keycloak-Admin-Zugangsdaten (Grundsatz der geringsten Rechte).
+    #
+    # `env_file: !reset null` ist dafür zwingend. Compose ENTFERNT das `env_file: .env`
+    # aus compose.yaml beim Zusammenführen nicht, und `env_file: []` hängt nur an —
+    # ohne !reset bekäme der Container die Aufzählung unten PLUS die komplette .env,
+    # und die Begründung darüber wäre unwahr (nachgemessen: DB_ROOT_PASSWORD war
+    # gesetzt, mit !reset sind es 39 → 31 Variablen). Die Liste ist vollständig:
+    # Settings lädt mit genau diesen Variablen (31 Felder, gegengeprüft).
+    env_file: !reset null
     environment:
       APP_ENV: ${APP_ENV}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}

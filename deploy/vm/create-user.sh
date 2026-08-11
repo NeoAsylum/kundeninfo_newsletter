@@ -57,6 +57,55 @@ import httpx
 KC = "http://keycloak:8081/idp"
 REALM = "dev"
 email = os.environ["NEW_EMAIL"]
+
+
+def portal_aktiv_setzen(aktiv: bool) -> None:
+    """Zieht users.is_active im Portal nach.
+
+    Ohne das driften IdP und Portal auseinander, und zwar folgenschwer: Seit ADR-0022
+    kommen Adminrechte allein aus der Datenbank, und der Notausgang
+    ADMIN_BOOTSTRAP_EMAILS greift nur, solange KEIN aktiver Admin existiert. Ein per
+    --disable gesperrter Admin blieb in der Datenbank `is_active=1, is_admin=1` — er
+    konnte sich nicht mehr anmelden, blockierte aber den Notausgang dauerhaft. Wer den
+    letzten Admin nach einer Demo sperrte, hatte damit ein unbedienbares Portal, das
+    sich nur per SQL wieder öffnen liess.
+
+    Nebeneffekt, der fachlich richtig ist: Ein gesperrter Zugang ist auch kein
+    Empfänger mehr. Meldet sich die Person später wieder an, reaktiviert das
+    JIT-Provisioning die Zeile ohnehin (ADR-0010).
+    """
+    import asyncio
+
+    from sqlalchemy import text
+
+    from app.core.config import Settings
+    from app.db.base import make_engine, make_sessionmaker
+
+    async def _lauf() -> int:
+        einstellungen = Settings()  # type: ignore[call-arg]
+        engine = make_engine(einstellungen.database_url)
+        sessionmaker = make_sessionmaker(engine)
+        try:
+            async with sessionmaker() as session:
+                ergebnis = await session.execute(
+                    text("UPDATE users SET is_active = :a WHERE email = :e"),
+                    {"a": 1 if aktiv else 0, "e": email},
+                )
+                await session.commit()
+                return ergebnis.rowcount or 0
+        finally:
+            await engine.dispose()
+
+    try:
+        betroffen = asyncio.run(_lauf())
+    except Exception as fehler:  # Sperre im IdP ist wichtiger als der Nachtrag
+        print(f"WARNUNG: Portal-Kennzeichen nicht angepasst ({fehler})", file=sys.stderr)
+        print("         Bitte in der Empfaenger-Maske nachziehen.", file=sys.stderr)
+        return
+    if betroffen:
+        print(f"    Portal: is_active={'1' if aktiv else '0'} gesetzt")
+    else:
+        print("    Portal: noch kein Datensatz (erste Anmeldung fehlt) — nichts zu tun")
 password = os.environ.get("NEW_PASSWORD") or secrets.token_urlsafe(12)
 must_change = not os.environ.get("NEW_PASSWORD")
 
@@ -101,9 +150,11 @@ with httpx.Client(timeout=30) as client:
         )
         state = "freigegeben" if set_enabled == "true" else "gesperrt"
         print(f"Anmeldung für {email} {state}.")
+        portal_aktiv_setzen(set_enabled == "true")
         if set_enabled == "false":
-            print("Hinweis: Abos und Versandhistorie bleiben erhalten; der Datensatz")
-            print("bleibt Empfänger, bis er in der Empfänger-Maske deaktiviert wird.")
+            print("Hinweis: Abos und Versandhistorie bleiben erhalten. Der Zugang ist")
+            print("weder anmeldefähig noch Empfänger; ein etwaiges Adminrecht bleibt")
+            print("gesetzt, zählt aber nicht mehr als aktiv (Rollen-Maske, RUNBOOK 6b).")
         sys.exit(0)
     if existing:
         user_id = existing[0]["id"]
@@ -117,6 +168,8 @@ with httpx.Client(timeout=30) as client:
             headers=headers,
             json=payload,
         )
+        if set_enabled in ("true", "false"):
+            portal_aktiv_setzen(set_enabled == "true")
     else:
         # registrationEmailAsUsername=true → Benutzername IST die E-Mail
         created = client.post(
