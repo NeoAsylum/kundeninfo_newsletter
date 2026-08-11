@@ -83,13 +83,18 @@ const App = {
     const toggleBtn = document.getElementById("nav-toggle");
     const menuEl = document.getElementById("topbar-menu");
     if (toggleBtn && menuEl) {
-      toggleBtn.onclick = (e) => {
-        e.stopPropagation();
+      const toggleMenu = (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         const isOpen = menuEl.classList.toggle("is-open");
         toggleBtn.classList.toggle("is-active", isOpen);
         toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
         toggleBtn.setAttribute("aria-label", isOpen ? "Menü schließen" : "Menü öffnen");
       };
+
+      toggleBtn.addEventListener("click", toggleMenu);
 
       document.addEventListener("click", (evt) => {
         if (menuEl.classList.contains("is-open") && !menuEl.contains(evt.target) && !toggleBtn.contains(evt.target)) {
