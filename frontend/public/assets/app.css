@@ -256,13 +256,23 @@ body {
   }
 
   .search-row {
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
   }
 
+  .search-row select {
+    max-width: 100%;
+    min-width: 150px;
+    flex: 0 1 auto;
+  }
+
+  .search-row input {
+    flex: 1 1 200px;
+  }
+
   .search-row .result-count {
-    margin-left: 0;
+    margin-left: auto;
   }
 
   .users-table-wrap, .table-responsive {
@@ -636,12 +646,30 @@ textarea { resize: vertical; min-height: 180px; }
 .search-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
-.search-row select { flex: 0 0 320px; width: auto; }
-.search-row input { flex: 1; }
+.search-row select {
+  width: auto;
+  min-width: 160px;
+  max-width: 260px;
+  flex: 0 1 auto;
+  padding: 8px 30px 8px 12px;
+  font-size: 0.88rem;
+  border-radius: 8px;
+  background-color: var(--surface);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.search-row input {
+  flex: 1 1 220px;
+  min-width: 160px;
+  font-size: 0.88rem;
+  padding: 8px 12px;
+}
 
 .result-count { font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
 
