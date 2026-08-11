@@ -21,7 +21,7 @@ Dieses Register dokumentiert alle offenen organisatorischen, technischen und reg
 
 | # | Frage | Adressat | Status |
 |---|---|---|---|
-| B1 | IdP konkret: Entra ID / Keycloak / ADFS? Prozess & Ansprechpartner für App-Registrierung. | IAM-Team | Offen |
+| B1 | IdP konkret: Entra ID / Keycloak / ADFS? Prozess & Ansprechpartner für App-Registrierung. | IAM-Team | **Richtung geklärt (2026-08-11, Auftraggeber): Anbindung an das AD.** Offen bleiben Produkt, Claim-Namen und der Registrierungsprozess. | Folge für den Übergang: Selbstregistrierung und Mailbestätigung sind nur Behelf der Testmaschine und entfallen mit der Anbindung (ADR-0021). |
 | B2 | Relay: Hostname, Port (25/587), IP-Allowlist-Verfahren — und vor allem das **Auth-Verfahren**: interner Receive-Connector ohne Auth (bevorzugt), Basic Auth, oder erzwingt Exchange Online **Modern Auth/OAuth2**? Hintergrund: Microsoft hat Basic Auth für SMTP AUTH abgeschaltet (am 2026-08-10 an einem Consumer-Konto verifiziert: `535 5.7.139`); OAuth2 in der App ist bewusst nicht gebaut und wäre ~1–2 PT Nacharbeit (ADR-0012). Zusätzlich: Rate-/Empfänger-/Größenlimits. | Exchange-Team | Offen |
 | B3 | Externe DB: MySQL oder MariaDB, Version, TLS-Pflicht, User-Rechte & Cutover-Termin. | DB-Betrieb | Offen |
 | B4 | Proxy-Zwang für ausgehendes HTTPS & Zertifikatsprozess der Konzern-PKI. | Netzwerk / Security | Offen |

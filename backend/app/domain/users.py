@@ -19,6 +19,12 @@ from app.db.models import AuditLog, User
 
 log = logging.getLogger(__name__)
 
+# Demo-Regel der Testmaschine: Adressen mit dieser Endung werden beim Login Admin.
+# `.invalid` ist eine reservierte Endung (RFC 2606) — an solche Adressen kann keine
+# Mail gehen, ein Konto entsteht also nur, wenn es jemand bewusst anlegt oder die
+# Registrierung ohne Mailbestätigung offen steht. Siehe _demo_admin und RUNBOOK 3c.
+DEMO_ADMIN_SUFFIX = "@demo.invalid"
+
 
 def archived_email(user_id: int) -> str:
     return f"user-{user_id}@invalid.archiviert"
@@ -80,6 +86,38 @@ async def _bootstrap_admin_if_orphaned(
     )
 
 
+async def _demo_admin(session: AsyncSession, user: User) -> None:
+    """Adressen auf DEMO_ADMIN_SUFFIX bekommen beim Login Adminrechte.
+
+    Bewusste Betriebsentscheidung für die Testmaschine: Ein Demo-Zugang soll ohne
+    Vorbereitung sofort alles zeigen können. Anders als der Bootstrap (der nur greift,
+    solange kein aktiver Admin existiert) ist das eine DAUERHAFT offene Vergabe — wer
+    sich mit einer solchen Adresse registrieren kann, ist Admin. Das ist auf einer
+    öffentlich erreichbaren Instanz mit offener Selbstregistrierung eine Hintertür und
+    steht so in RUNBOOK 3c; vor produktiver Nutzung muss die Regel weg.
+
+    Auditiert wie jede andere Rechtevergabe (ADR-0017) und nur beim tatsächlichen
+    Wechsel — sonst stünde bei jeder Anmeldung ein neuer Eintrag im Log.
+    """
+    if user.is_admin:
+        return
+    user.is_admin = True
+    session.add(
+        AuditLog(
+            actor_email=user.email,
+            action="admin_demo_suffix",
+            detail={"user_id": user.id, "suffix": DEMO_ADMIN_SUFFIX},
+        )
+    )
+    await session.flush()
+    log.warning(
+        "Adminrecht wegen Adress-Endung %s vergeben (User %s) — Demo-Regel, keine "
+        "Prüfung. Auf einer produktiven Instanz gehört sie entfernt.",
+        DEMO_ADMIN_SUFFIX,
+        user.id,
+    )
+
+
 async def jit_upsert(
     session: AsyncSession, identity: Identity, settings: Settings | None = None
 ) -> User:
@@ -105,9 +143,8 @@ async def jit_upsert(
         user.last_login_at = utcnow()
 
     await session.flush()
-    if identity.email.endswith("@demo.invalid"):
-        user.is_admin = True
-        await session.flush()
+    if identity.email.endswith(DEMO_ADMIN_SUFFIX):
+        await _demo_admin(session, user)
     elif settings is not None:
         await _bootstrap_admin_if_orphaned(session, settings, user)
     return user

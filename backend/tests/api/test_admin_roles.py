@@ -372,3 +372,40 @@ async def test_bootstrap_wird_auditiert(make_app):
     assert [e.action for e in eintraege] == ["admin_bootstrap"]
     assert eintraege[0].actor_email == "chef@example.corp"
     assert eintraege[0].detail["grund"]
+
+
+# --- Demo-Regel der Testmaschine (Adress-Endung) ------------------------------
+
+
+async def test_demo_suffix_macht_admin_und_wird_auditiert(make_app):
+    """Bewusste Regel für die Testmaschine (RUNBOOK 3c): Adressen auf @demo.invalid
+    bekommen beim Login Adminrechte. Anders als der Bootstrap ist das dauerhaft offen —
+    der Test hält beides fest, damit die Wirkung nicht unbemerkt verlorengeht ODER
+    unbemerkt in eine produktive Instanz gerät.
+    """
+    app = make_app()
+    settings = make_settings()
+    async with app.state.sessionmaker() as session:
+        session.add(
+            User(oidc_sub="s-vorhanden", email="da@example.corp", is_active=True, is_admin=True)
+        )
+        await session.commit()
+
+    # Greift auch, obwohl bereits ein aktiver Admin existiert — genau der Unterschied
+    # zum Bootstrap, der in diesem Fall nichts täte.
+    assert await _anmelden(app, settings, "s-demo", "vorfuehrung@demo.invalid") is True
+
+    async with app.state.sessionmaker() as session:
+        eintraege = list((await session.execute(select(AuditLog))).scalars())
+    assert [e.action for e in eintraege] == ["admin_demo_suffix"]
+
+    # Zweite Anmeldung ändert nichts und schreibt keinen zweiten Eintrag
+    assert await _anmelden(app, settings, "s-demo", "vorfuehrung@demo.invalid") is True
+    async with app.state.sessionmaker() as session:
+        assert len(list((await session.execute(select(AuditLog))).scalars())) == 1
+
+
+async def test_gewoehnliche_adresse_bekommt_keine_rechte(make_app):
+    app = make_app()
+    settings = make_settings()
+    assert await _anmelden(app, settings, "s-normal", "mia@example.corp") is False

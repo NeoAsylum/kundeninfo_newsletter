@@ -40,7 +40,7 @@ Bisher werden Störungsinformationen über händisch gepflegte E-Mail-Verteiler 
   - `subscriptions`: Zuordnung von Nutzern zu gewählten Benachrichtigungstopics.
   - `dispatches`: Historie versendeter Störungsmeldungen (Ersteller, Betreff, Text, Zeitpunkt).
   - `dispatch_recipients`: Zustellstatus je Empfänger (erforderlich für automatische Retries bei Netzwerkfehlern).
-  - `audit_log`: Auf administrative Aktionen beschränkt — abgeschickte Meldungen; Änderungen, die ein Administrator an fremden Empfängern vornimmt (Aktivieren/Deaktivieren, Abo setzen/entfernen); die Vergabe und der Entzug von Administratorrechten im Portal; sowie Anlegen, Ändern und Löschen von Verteilern. Protokolliert wird jeweils, **wer** die administrative Handlung vorgenommen hat und **was** sie betraf. Die Protokollierung von Abo-Änderungen, die Mitarbeiter **selbst** vornehmen, ist standardmäßig **deaktiviert** (`AUDIT_SUBSCRIPTIONS=false`) und bedarf der expliziten Freigabe.
+  - `audit_log`: Auf administrative Aktionen beschränkt — abgeschickte Meldungen; Änderungen, die ein Administrator an fremden Empfängern vornimmt (Aktivieren/Deaktivieren, Abo setzen/entfernen); die Vergabe und der Entzug von Administratorrechten im Portal (auch dann, wenn sie automatisch erfolgt); sowie Anlegen, Ändern und Löschen von Verteilern. Protokolliert wird jeweils, **wer** die administrative Handlung vorgenommen hat und **was** sie betraf. Die Protokollierung von Abo-Änderungen, die Mitarbeiter **selbst** vornehmen, ist standardmäßig **deaktiviert** (`AUDIT_SUBSCRIPTIONS=false`) und bedarf der expliziten Freigabe.
 
 ---
 

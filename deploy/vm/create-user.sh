@@ -212,6 +212,10 @@ print(f"  Passwort: {password}")
 if must_change:
     print("  → muss beim ersten Login geändert werden")
 print(f"  Portal:   {os.environ['PUBLIC_BASE_URL']}/abos.html")
-print("  Rechte:   Mitarbeiter. Adminrechte in der Maske „Rollen“ vergeben.")
+if email.endswith("@demo.invalid"):
+    # Demo-Regel der Testmaschine (DEMO_ADMIN_SUFFIX in app/domain/users.py)
+    print("  Rechte:   ADMIN ab der ersten Anmeldung (Adress-Endung @demo.invalid).")
+else:
+    print("  Rechte:   Mitarbeiter. Adminrechte in der Maske „Rollen“ vergeben.")
 print("=" * 64)
 PYTHON

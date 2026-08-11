@@ -77,9 +77,12 @@ Selbstregistrierung offen, könnte sich jemand mit einer gelisteten Adresse anme
 allerdings nur zu dem Zeitpunkt, an dem ohnehin kein aktiver Admin existiert. Das ist
 bewusst nicht abgesichert: Eine harte Forderung nach `email_verified` würde genau den
 Notausgang unbrauchbar machen, für den er gedacht ist (bei einer Aussperrung ist
-niemand da, der eine Bestätigungsmail freischalten könnte). Wer die Instanz öffentlich
-betreibt, hält deshalb entweder `verifyEmail` an oder trägt in
-`ADMIN_BOOTSTRAP_EMAILS` nur Adressen ein, die im IdP schon ein Konto haben.
+niemand da, der eine Bestätigungsmail freischalten könnte).
+
+Auf der Testmaschine ist `verifyEmail` abgeschaltet (ADR-0021), die Abhängigkeit also
+real: In `ADMIN_BOOTSTRAP_EMAILS` gehören dort nur Adressen, die im IdP bereits ein
+Konto haben. Im Zielbild mit AD-Anbindung erledigt sich das, weil sich niemand mehr
+selbst registriert und die Adresse durch das Konzern-Konto belegt ist.
 
 Wer ein IdP-Konto anlegt, vergibt damit **keine** Rechte mehr. Der Schalter `--admin` in
 `deploy/vm/create-user.sh` und `ops/create_dev_user.py` ist deshalb entfallen, statt eine

@@ -113,7 +113,13 @@ def main() -> int:
     if must_change:
         print("  → muss beim ersten Login geändert werden")
     print("  Portal:   http://localhost:8080/abos.html")
-    print("  Rechte:   Mitarbeiter. Adminrechte in der Maske „Rollen“ vergeben.")
+    if args.email.endswith("@demo.invalid"):
+        # Demo-Regel der Testmaschine (DEMO_ADMIN_SUFFIX in app/domain/users.py)
+        print(
+            "  Rechte:   ADMIN ab der ersten Anmeldung (Adress-Endung @demo.invalid)."
+        )
+    else:
+        print("  Rechte:   Mitarbeiter. Adminrechte in der Maske „Rollen“ vergeben.")
     print("=" * 62)
     return 0
 

@@ -5,7 +5,7 @@
 # Aufgaben:
 #  * Redirect-URIs und Web-Origins auf die öffentliche Domain (statt localhost)
 #  * Client-Secret aus der .env setzen (das Realm-JSON enthält nur einen Dev-Wert)
-#  * Selbstregistrierung + Bestätigungsmail, Realm-SMTP für diese Mails
+#  * Selbstregistrierung (ohne Bestätigungsmail, ADR-0021), Realm-SMTP für Reset-Mails
 #  * Brute-Force-Schutz — bei öffentlich erreichbarem Login unverzichtbar
 #
 # Die Adminschnittstelle von Keycloak ist absichtlich nicht von außen erreichbar.
@@ -66,7 +66,10 @@ with httpx.Client(timeout=30) as client:
         "registrationEmailAsUsername": True,
         "loginWithEmailAllowed": True,
         "resetPasswordAllowed": True,
-        # Bestätigungsmail: Für Demos deaktiviert (Instant-Login nach Registrierung ohne Wartezeit)
+        # Keine Bestätigungsmail (ADR-0021, Auftraggeber-Entscheidung): Registrierung ist
+        # damit einen Klick lang. Folge, die man kennen muss: Die Adresse muss niemandem
+        # gehören. Im Zielbild mit AD-Anbindung entfällt die Selbstregistrierung ganz,
+        # dann gehört auch registrationAllowed auf False.
         "verifyEmail": False,
         # Brute-Force-Schutz: bei öffentlichem Login unverzichtbar
         "bruteForceProtected": True,

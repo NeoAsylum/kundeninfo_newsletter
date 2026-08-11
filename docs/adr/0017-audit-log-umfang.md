@@ -14,7 +14,8 @@ Die append-only-Tabelle `audit_log` protokolliert **ausschließlich Admin-Aktion
 | `user_activated` / `user_deactivated` | Empfänger über die Admin-API geschaltet |
 | `admin_subscribe` / `admin_unsubscribe` | Admin ändert das Abo eines anderen Nutzers |
 | `admin_granted` / `admin_revoked` | Adminrecht im Portal vergeben oder entzogen ([ADR-0022]) |
-| `admin_bootstrap` | Adminrecht über `ADMIN_BOOTSTRAP_EMAILS` vergeben, weil kein aktiver Admin existierte — die einzige Vergabe ohne handelnden Menschen ([ADR-0022]) |
+| `admin_bootstrap` | Adminrecht über `ADMIN_BOOTSTRAP_EMAILS` vergeben, weil kein aktiver Admin existierte ([ADR-0022]) |
+| `admin_demo_suffix` | Adminrecht wegen der Adress-Endung `@demo.invalid` vergeben — Demo-Regel der Testmaschine, siehe RUNBOOK 3c |
 | `topic_created` / `topic_updated` / `topic_deleted` | Verteiler angelegt, geändert oder gelöscht ([ADR-0024]) |
 
 Abo-Änderungen durch die Nutzer selbst (`subscribe`/`unsubscribe`) werden erst nach Freigabe über den Konfig-Schalter `AUDIT_SUBSCRIPTIONS=true` geschrieben (Code liegt bereit, Default `false`). Lese-/Öffnungsverhalten wird **nie** protokolliert ([ADR-0014]) — auch nicht das Lesen der für alle sichtbaren Meldungshistorie ([ADR-0023]).

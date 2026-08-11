@@ -13,6 +13,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
   - **Erster Admin:** Migration 0003 übernimmt, wer belegbar bereits als Admin gehandelt hat (Ersteller von Versänden, Akteure im Audit-Log — mit Zeitachsen-Prüfung, weil E-Mail-Adressen recycelt werden). Darüber hinaus `ADMIN_BOOTSTRAP_EMAILS`: gelistete Adressen bekommen beim Login das Recht, aber nur solange kein aktiver Admin existiert. Damit ist die Liste im Normalbetrieb wirkungslos und taugt nicht als Hintertür (RUNBOOK 6b).
   - Der Schalter `--admin` in `deploy/vm/create-user.sh` und `ops/create_dev_user.py` ist entfallen: Ein IdP-Konto anzulegen vergibt keine Rechte mehr.
 
+### Betrieb der Testmaschine
+
+- **Keine Mailbestätigung bei der Registrierung** (`verifyEmail: false`, ADR-0021, Entscheidung des Auftraggebers): Die Registrierung ist einen Klick lang und braucht keinen funktionierenden Realm-SMTP. Der Preis steht dabei: Eine Adresse muss niemandem gehören. Im Zielbild mit AD-Anbindung (Frage B1) entfällt die Selbstregistrierung ohnehin.
+- **Adressen auf `@demo.invalid` erhalten beim Login Adminrechte** — Demo-Regel für Vorführungen, jetzt benannt (`DEMO_ADMIN_SUFFIX`), begründet und wie jede andere Rechtevergabe auditiert (`admin_demo_suffix`, ADR-0017). Anders als `ADMIN_BOOTSTRAP_EMAILS` ist die Regel **dauerhaft** offen. RUNBOOK 3c führt sie zusammen mit der offenen Registrierung und der fehlenden Mailbestätigung als die drei Türen auf, die vor einem produktiven Betrieb jede einzeln fallen müssen.
+
 ### Datenschutz & Robustheit
 
 - **Keine Personennamen mehr** (ADR-0025): Das Portal liest den Namens-Claim nicht, führt ihn nicht im Session-Cookie, speichert ihn nicht und liefert ihn in keiner API-Antwort aus. Angezeigt wurde er ohnehin nirgends — die Empfänger-Maske ist verteiler-zentriert ohne Namensspalte, die Suche E-Mail-only. Migration 0004 leert die Bestandswerte; die Spalte bleibt, weil Migrationen additiv sind (ADR-0011). Vor- und Nachname im IdP bleiben Pflicht, sonst hängt Keycloak den Login an `VERIFY_PROFILE` auf.

@@ -242,7 +242,7 @@ gesetzt sind.
 | **Keycloak** | Produktionsmodus, Speicher in MariaDB (Datenbank `keycloak`), erreichbar unter `/idp`. Adminkonsole und `/idp/metrics` sind per NGINX mit 404 blockiert. |
 | **Adminkonsole** | Nur über SSH-Tunnel: `ssh -L 8081:localhost:8081 root@<host>`, dann `http://localhost:8081/idp/`. Zugangsdaten: `KEYCLOAK_ADMIN*` in der `.env`. |
 | **Secrets** | Alle in `/opt/stoerungsinfo/.env` (`chmod 600`), beim ersten Deploy per `openssl rand` erzeugt. Keine Dev-Werte, nichts aus dem Repo. |
-| **Registrierung** | Offen (Entscheidung des Auftraggebers), mit Bestätigungsmail und Brute-Force-Schutz. Abschalten: `registrationAllowed` per Keycloak-Adminkonsole oder `configure-realm.sh` anpassen. |
+| **Registrierung** | Offen und **ohne** Bestätigungsmail (Entscheidung des Auftraggebers, ADR-0021) — eine Adresse muss also niemandem gehören. Brute-Force-Schutz ist an. Abschalten: `registrationAllowed` per Keycloak-Adminkonsole oder `configure-realm.sh`. |
 | **Speicher** | Limits: nginx 96 MB, api 320 MB, mariadb 288 MB, keycloak 640 MB, certbot 128 MB. Im Betrieb ~1,1 GB belegt, Swap als Puffer. |
 | **Reboot** | `restart: unless-stopped` + aktivierter Docker-Dienst — der Stack kommt selbstständig wieder. |
 
@@ -404,6 +404,28 @@ Wer diese Konfiguration ändert, sollte wissen, warum sie so aussieht:
 * **Tageskontingent des Mailkontos**: Meldungen wie `550 5.4.5 Daily user sending limit
   exceeded` werden als vorübergehend behandelt, damit der Backoff greift statt alle
   restlichen Empfänger endgültig als fehlgeschlagen zu verbuchen.
+
+### Bewusst offene Türen dieser Testmaschine
+
+Drei Entscheidungen des Auftraggebers machen die Instanz leichter bedienbar und
+gleichzeitig angreifbar. Sie stehen hier zusammen, damit sie beim Schritt zu einem
+produktiven Betrieb nicht einzeln übersehen werden — **jede einzelne muss dann fallen:**
+
+1. **Registrierung offen** (`registrationAllowed: true`).
+2. **Keine Mailbestätigung** (`verifyEmail: false`, ADR-0021) — eine Adresse muss
+   niemandem gehören.
+3. **Adressen auf `@demo.invalid` erhalten beim Login automatisch Adminrechte**
+   (`backend/app/domain/users.py`, `DEMO_ADMIN_SUFFIX`). Anders als
+   `ADMIN_BOOTSTRAP_EMAILS` ist das keine Notfallregel, sondern dauerhaft offen.
+
+Zusammen ergeben sie einen Weg aus dem offenen Internet zu vollen Adminrechten:
+registrieren mit `irgendwas@demo.invalid`, keine Bestätigung nötig, anmelden — fertig.
+Ein Admin kann echte Mails über das konfigurierte Postfach an alle Abonnenten senden,
+alle Empfängeradressen einsehen, Verteiler löschen und weitere Admins ernennen.
+
+Für die Testmaschine ist das abgewogen und akzeptiert. Im Zielbild mit AD-Anbindung
+(offene Frage B1) entfallen Punkt 1 und 2 von selbst, weil die Konten aus dem
+Verzeichnisdienst kommen; Punkt 3 muss aktiv entfernt werden.
 
 ### Weg zurück, wenn ein Deploy schiefgeht
 
