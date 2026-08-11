@@ -1,6 +1,19 @@
 # MVP-Umsetzungsplan „Störungsinfos“ — Self-Service-Portal für Störungs-Newsletter
 
-**Version:** 1.2 (Planungsstand 2026-08-10, Review-Befunde aus drei unabhängigen Reviews eingearbeitet; Erweiterungspunkt Dashboards/Newsfeed ergänzt) · **Status:** zur Abnahme durch das Problemmanagement · **Sprache/Doku:** Deutsch
+**Version:** 1.2 · **Planungsstand:** 2026-08-10 · **Status:** historisch
+
+> **Dieses Dokument ist der Plan von vor der Umsetzung, nicht die Beschreibung des
+> Ist-Stands.** Es bleibt erhalten, weil es die Anforderungen, die Abwägungen und die
+> Meilenstein-Logik festhält, aus denen das System entstanden ist. Wo Plan und Realität
+> auseinandergehen, gilt die Realität — nachzulesen in [README](../README.md),
+> [ARCHITECTURE](ARCHITECTURE.md), [RUNBOOK](RUNBOOK.md), [adr/](adr/) und
+> [CHANGELOG](../CHANGELOG.md).
+>
+> Die auffälligsten Abweichungen: handgeschriebenes CSS statt Tailwind (ADR-0018),
+> aiomysql statt asyncmy (ADR-0019), Keycloak läuft im Pilot dauerhaft mit statt nur in
+> DEV, Selbstregistrierung über den IdP (ADR-0021), kein automatisierter Notfall-CSV-Export,
+> SMTP-Auth nur `none`/`login` (ADR-0012). Die Personentage-Angaben in Abschnitt 11 sind
+> Schätzungen aus der Planung und wurden nicht nachgeführt.
 
 ---
 
@@ -750,71 +763,18 @@ Jeder Meilenstein enthält verbindlich: **README + ARCHITECTURE.md auf dem Stand
 
 ---
 
-## 13. Offene Fragen an Stakeholder (priorisiert)
+## 13. Offene Fragen und Entscheidungsdokumente
 
-Geführt als lebendes Register `docs/open-questions.md` (nummeriert, jede Antwort mit Datum und Quelle; dieselben Nummern in Change-Anträgen und Terminen). **Die Fragen B1, B2, B4, B5 und B9 werden wegen Konzern-Vorlaufzeiten in der ersten Projektwoche gestellt** — der Vorlauf eines Betriebsratsgremiums (B5) ist erfahrungsgemäß so lang wie der eines Firewall-Changes, und die Registrierung (B9) ist Vorbedingung der übrigen Anträge.
+Beides wird als lebendes Dokument geführt und ist hier bewusst nicht kopiert:
 
-### Kategorie A — blockiert das MVP (Fachkonzept/Abnahme)
-
-| # | Frage | Adressat |
-|---|---|---|
-| A1 | Muss das Pflicht-Topic **alle Mitarbeiter** erreichen oder genügen angemeldete Portal-Nutzer (JIT)? Falls alle: Woher kommt die vollständige Adressliste (AD-Export, HR-System, Initialimport)? Welche Anmeldequote gilt als Abschaltkriterium für den Alt-Verteiler? | Auftraggeber / Konzern-IT |
-| A2 | Wer darf die Versand-Maske nutzen, und über welchen Mechanismus wird der Kreis festgestellt (Entra App-Rolle, AD-Gruppe, Claim-Name)? Hinweis: Rollenentzug wirkt im BFF-Modell erst mit Session-Ablauf (max. 8 h, Notfallhebel dokumentiert, 5.3) — ist das akzeptiert? | Auftraggeber / IAM |
-| A3 | Welche Absenderadresse (Funktionspostfach) und welches Reply-To-Verhalten sollen Störungsmails haben? Wohin laufen Bounces/NDRs? | Problemmanagement / Exchange-Team |
-| A4 | Mengengerüste: Empfänger gesamt, je Topic, Versandhäufigkeit? (bestimmt Rate-Limit-Defaults und Sizing) | Auftraggeber |
-| A5 | **Welche Verfügbarkeitsanforderung/RTO gilt für das Portal, insbesondere während Großstörungen (IdP/DB/Netz teilweise down)?** Ist Single-VM mit dokumentierter Notfall-Versand-Prozedur (9.6) abnahmefähig, oder wird HA gefordert? | Auftraggeber / IT-Betrieb |
-
-### Kategorie B — blockiert den Go-Live (parallel klärbar dank Mocks)
-
-| # | Frage | Adressat |
-|---|---|---|
-| B1 | IdP konkret (Entra ID / Keycloak / ADFS)? Prozess + Ansprechpartner für App-Registrierung, Redirect-URI, Client-Secret; welcher Claim liefert verlässlich E-Mail (email vs. UPN) und Rollen (App-Rollen möglich, oder Gruppen-Claims mit Overage-Risiko)? **Welche Ablauf-/Rotations-Policy gilt für das Client-Secret — ist ein Zertifikat als Client-Credential erlaubt (längere Laufzeit)?** | IAM-Team |
-| B2 | Relay: Hostname, Port (25/587), Auth-Verfahren (IP-Allowlist / LOGIN / wirklich Kerberos?), STARTTLS-Pflicht, Rate-/Empfänger-/Größenlimits, Prozess für Allowlist-Aufnahme der VM-IP? | Exchange-Team |
-| B3 | Externe DB: MySQL oder MariaDB, Version, TLS-Pflicht, technischer User/Rechte **inkl. Passwort-Rotations-Policy**, Backup-/Restore-Verantwortung, Wartungsfenster, Cutover-Termin? | DB-Betrieb |
-| B4 | Netzwerk: Proxy-Zwang für ausgehendes HTTPS (mit TLS-Interception/eigener CA)? Vorlauf für Firewall-Changes? DNS-Name der VM, Zertifikatsprozess der Konzern-PKI (Format, Laufzeit, Erneuerung)? | Netzwerk/Security |
-| B5 | Betriebsrat (**Woche-1-Frage, Vorlage: `docs/betriebsrat-briefing.md` mit dem gesamten Datenmodell mit Personenbezug** — `users` inkl. `last_login_at`, `audit_log`, `dispatch_recipients`, Log-Inhalte — nicht nur das Pflicht-Abo): Ist die Einführung des Systems nach §87 Abs. 1 Nr. 6 BetrVG mitbestimmungspflichtig, braucht es eine Betriebsvereinbarung? Ist das Pflicht-Abo zulässig? Ist ein Versandprotokoll auf Einzel-Empfänger-Ebene (für Retry) zulässig, mit welcher maximalen Aufbewahrung? **Darf die App Abo-Änderungen einzelner Mitarbeiter im Audit-Log protokollieren (Schalter `AUDIT_SUBSCRIPTIONS`, im MVP aus)?** | Betriebsrat / HR |
-| B6 | Datenschutz: Aufbewahrungs-/Löschfristen für `dispatch_recipients`, `audit_log` und DB-Backups? DSFA erforderlich? Genügt Anonymisierung statt Löschung? Inhalt des Datenschutzhinweises (Art. 13), Art.-30-Eintrag + fachlich Verantwortlicher? | Datenschutzbeauftragter |
-| B7 | Betrieb: Wer betreibt die VM (OS-Patching, Docker-Freigabe, Monitoring-Anbindung, Alarm-Postfach, SSH-Zugangsweg)? Deckt das zentrale VM-Backup das Dump-Verzeichnis `/var/backups/stoerungsinfo/` ab? Wer verantwortet den monatlichen Image-Rebuild (9.7)? | IT-Betrieb |
-| B8 | Build-Infrastruktur: Gibt es interne Registry (Harbor/Artifactory) und CI-Runner mit Docker-Fähigkeit, oder bleibt Build-on-VM? Welche Git-Plattform (bestimmt PR-Template/CI-Mechanik)? Sind Docker Hub/PyPI direkt erreichbar oder nur via Mirror? **Ist GitHub von Entwickler-Maschinen erreichbar (Bezug Tailwind-CLI)?** | IT-Betrieb / DevOps |
-| B9 | **Change-Prozess & Registrierung (Woche-1-Frage):** Welcher Change-Prozess gilt für PROD-Deployments — ist ein vorabgenehmigter Standard-Change möglich (Argumentation: additive Migrationen, Tag-Rollback, Smoke-Test)? Welche Registrierung braucht die Anwendung (CMDB-Eintrag/App-ID, Namenskonventionen für DNS, Service-Accounts, VM) als Vorbedingung für Firewall-/Zertifikats-/Monitoring-Anträge? | IT-Betrieb / Change-Management |
-| B10 | **Security-Freigabe:** Welche Sicherheitsabnahme ist vor Go-Live nötig (Pentest, Schwachstellenscan, Security-Konzept nach Konzern-Vorlage)? Wer beauftragt sie, mit welchem Vorlauf? (Slot vor M5 eingeplant) | Informationssicherheit |
-
-### Kategorie C — später (beeinflusst Ausbaustufen, nicht den Go-Live)
-
-| # | Frage |
-|---|---|
-| C1 | Barrierefreiheit: Gilt eine verbindliche BITV-/WCAG-Vorgabe für interne Portale (→ formales Audit als Ausbaustufe)? |
-| C2 | Müssen Empfänger ohne SSO-Login erreichbar sein (Funktionspostfächer, externe Partner) → Verzeichnis-Sync oder manuell gepflegte Zusatz-Empfänger? |
-| C3 | Gibt es ein Offboarding-Signal aus dem AD, mit dem `users.is_active` automatisch gepflegt werden kann? (ergänzt die E-Mail-Kollisionsbehandlung aus 4.3) |
-| C4 | Wird revisionssichere Archivierung der exakt versendeten Mail gefordert (→ `rendered_html` + Template-Version)? |
-| C5 | Existiert ein Test-Tenant im Konzern-IdP und eine Staging-VM für echte Login-/Mail-Roundtrips? |
+* **Offene Fragen** — [docs/open-questions.md](open-questions.md), nummeriert (A/B/C nach
+  Blockade-Wirkung), jede Antwort mit Datum und Quelle. Die Nummern werden in
+  Change-Anträgen und Terminen zitiert. B1, B2, B4, B5 und B9 sind wegen der
+  Konzern-Vorlaufzeiten zuerst zu stellen.
+* **Architekturentscheidungen** — [docs/adr/](adr/), MADR-light, je maximal eine Seite.
+  Der Plan sah 17 ADRs vor; geschrieben wurden 21, weil während der Umsetzung weitere
+  Entscheidungen anfielen (CSS-Verzicht, DB-Treiber, CSP, Selbstregistrierung).
 
 ---
 
-## 14. ADR-Liste (zu schreibende Entscheidungsdokumente)
-
-MADR-light, max. eine Seite, in `docs/adr/`; ADR-001 bis 011 entstehen in M0/M1, die übrigen bei Umsetzung des jeweiligen Themas.
-
-| Nr. | Titel | Kernaussage |
-|---|---|---|
-| 001 | FastAPI als Backend-Framework | async, OIDC-Ökosystem, OpenAPI gratis; Alternativen (Flask, Django) verworfen |
-| 002 | OIDC statt Kerberos für die Nutzer-Auth | Kerberos betrifft allenfalls das SMTP-Relay; Windows-SSO liefert der IdP (Abschnitt 5.2) |
-| 003 | BFF-Muster mit HttpOnly-Session-Cookie statt Token im Browser | einfacher **und** sicherer als der Sketch; dokumentierter Trade-off: Rollenentzug wirkt bis 8 h verzögert, Notfallhebel `SESSION_SECRET`-Rotation (Abschnitte 5.3, 9.5) |
-| 004 | DB-Outbox + asyncio-Worker statt Celery/Redis | DB liefert die Dauerhaftigkeit, Lastprofil rechtfertigt keinen Broker; harte Betriebsbedingung `workers=1`, Claiming + Heartbeat (Abschnitt 6.3) |
-| 005 | Einzelmails statt BCC-Sammelmail | personalisierter Footer, empfängergenauer Status, Bounce-Fähigkeit (Abschnitt 6.4) |
-| 006 | Statisches HTML + Tailwind statt SPA-Framework | zwei Masken, kein Client-State; gebautes CSS versioniert (proxy-sicherer Build); REST-API als stabiler Erweiterungsvertrag (Abschnitt 3.5) |
-| 007 | Mailpit als Mock-Outlook | protokollechtes SMTP-Verhalten + REST-API + Chaos statt Exchange-Nachbau; MailHog/smtp4dev verworfen (Abschnitt 6.1) |
-| 008 | Image-Build auf der VM aus Git-Tag (vorläufig) | Registry-Zugang ungeklärt; Wechsel auf CI+Registry vorbereitet; Digest-Pinning + Rebuild-Kadenz (Abschnitte 3.7, 9.7) |
-| 009 | Pflicht-Topics implizit statt materialisiert | kein Sync, kein inkonsistenter Zustand möglich; Auto-Abo-Alternative verworfen (Abschnitt 4.3) |
-| 010 | JIT-Provisioning statt AD-Import | kein Sync-Job vor dem ersten Nutzen; definierte E-Mail-Kollisionsbehandlung; Konsequenz Rollout-Parallelbetrieb ausgesprochen (Abschnitt 4.3) |
-| 011 | Alembic ab Tag 1, Migrationen nur additiv | reproduzierbarer Schema-Stand, DB-Umzug = `DATABASE_URL` + Overlay weglassen, Rollback ohne DB-Restore (Abschnitte 4.3, 3.7, 9.4) |
-| 012 | SMTP-Auth-Abstraktion mit reserviertem Kerberos-Adapter | none/login jetzt, GSSAPI nur nach Bestätigung (Abschnitt 5.2) |
-| 013 | Rollen ausschließlich aus IdP-Claims, keine DB-Rollentabellen | IdP als einzige Wahrheit, Vergabe per AD-Gruppenantrag (Abschnitt 5.4) |
-| 014 | Null-Tracking & Retention-per-Konfig als Compliance-Vorsorge | Betriebsrats-/DSGVO-Nachforderungen werden Konfig statt Umbau (Abschnitt 10.1) |
-| 015 | Ein Test-DB-Dialekt: MariaDB (tmpfs) statt SQLite-Zweigleisigkeit | SQLite-Emulation verworfen — das DDL nutzt bewusst MySQL-Features (ENUM, ON UPDATE, UNSIGNED); zwei dauerhaft kompatibel zu haltende Dialekte wären zwei Mechanismen für ein Ziel; tmpfs-MariaDB hält den Loop schnell; kein testcontainers (Abschnitte 8.1, 8.3) |
-| 016 | Topic-Verwaltung per Seed-Migration + RUNBOOK-SQL statt Admin-CRUD | 5 vorgegebene, selten geänderte Topics rechtfertigen kein halbes Feature (API ohne UI); volles CRUD (API + UI) als Erweiterungspunkt (Abschnitte 4.3, 7.2) |
-| 017 | Audit-Log-Umfang: Admin-Aktionen ab Tag 1, Abo-Änderungen erst nach B5/B6-Freigabe | Verhaltensdaten-Logging von Beschäftigten nicht vor Betriebsrats-/DSB-Klärung; Aktivierung = Konfig-Schalter, kein Umbau (Abschnitte 4.3, 10.1) |
-
----
-
-*Ende des Plandokuments. Pflegehinweis: Dieses Dokument ist der Ausgangspunkt für `docs/ARCHITECTURE.md` und `docs/RUNBOOK.md`; nach M0 gelten die Repo-Artefakte als führend (Definition of Done, Abschnitt 9.2). Alle Review-Befunde der Stufen „hoch“ und „mittel“ sind eingearbeitet; die „niedrig“-Befunde wurden übernommen, wo sie Konsistenz oder Betriebssicherheit billig verbessern (Healthcheck-Trennung, CSRF-Vereinfachung, Coverage-Pfade, PT-Angabe, DEV-TLS-Linie, Titellängen-Validierung, Session-Trade-off, E-Mail-Kollisionsbehandlung).*
+*Ende des Plandokuments.*

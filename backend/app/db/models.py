@@ -23,7 +23,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
@@ -67,8 +67,6 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="user")
-
 
 class Topic(Base):
     __tablename__ = "topics"
@@ -95,9 +93,6 @@ class Subscription(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    user: Mapped[User] = relationship(back_populates="subscriptions")
-    topic: Mapped[Topic] = relationship()
-
 
 class Dispatch(Base):
     __tablename__ = "dispatches"
@@ -118,9 +113,6 @@ class Dispatch(Base):
     last_progress_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    topic: Mapped[Topic] = relationship()
-    recipients: Mapped[list["DispatchRecipient"]] = relationship(back_populates="dispatch")
-
     __table_args__ = (Index("ix_dispatches_created", "created_at"),)
 
 
@@ -139,8 +131,6 @@ class DispatchRecipient(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime)  # Backoff-Steuerung
     last_error: Mapped[str | None] = mapped_column(String(500))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime)
-
-    dispatch: Mapped[Dispatch] = relationship(back_populates="recipients")
 
     __table_args__ = (
         UniqueConstraint("dispatch_id", "email", name="uq_dr_dispatch_email"),

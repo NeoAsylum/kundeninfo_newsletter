@@ -267,7 +267,7 @@ async def test_retention_default_aus_loescht_nichts(app):
 
 
 async def test_poison_empfaenger_blockiert_versand_nicht(app):
-    """Review-Befund: Eine kaputte Adresse (Headerzeichen) muss auf failed laufen —
+    """Eine kaputte Adresse (Headerzeichen) muss auf failed laufen —
     der Auftrag darf nicht ewig in 'sending' hängen, andere Empfänger werden versorgt."""
     dispatch_id = await create_dispatch(app, ["gut@x.de", "kaputt@x.de\nBcc: evil@x.de"])
     settings = worker_settings()
@@ -286,7 +286,7 @@ async def test_poison_empfaenger_blockiert_versand_nicht(app):
 
 
 async def test_defekter_auftrag_blockiert_andere_nicht(app, monkeypatch):
-    """Review-Befund Tick-Starvation: Wirft Auftrag A deterministisch, müssen B und
+    """Tick-Starvation: Wirft Auftrag A deterministisch, müssen B und
     neue Aufträge trotzdem verarbeitet werden."""
     import app.mail.worker as worker_module
 

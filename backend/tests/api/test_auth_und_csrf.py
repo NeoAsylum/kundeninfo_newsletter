@@ -48,7 +48,7 @@ async def test_healthz_offen(client):
 
 
 async def test_auth_logout_post(client):
-    """Logout ist POST + CSRF-Header (kein Drive-by-Logout per Link, Review-Befund)."""
+    """Logout ist POST + CSRF-Header (kein Drive-by-Logout per Link)."""
     response = await client.post("/auth/logout", headers={"X-Requested-With": "fetch"})
     assert response.status_code == 200
     assert response.json()["logout_url"].endswith("/")

@@ -1,7 +1,6 @@
 # DEV-Overlay: Mocks (Keycloak, Mailpit) und Port-Mappings.
 # Bewusst OHNE Bind-Mounts: läuft ohne Docker-Desktop-File-Sharing (R10).
-# Live-Reload bei Codeänderung: compose.dev.reload.yaml zusätzlich laden
-# (make dev baut ohnehin bei jedem Start neu — Rebuild dauert nur Sekunden).
+# Kein Live-Reload: make dev baut bei jedem Start neu, das dauert nur Sekunden.
 services:
   nginx:
     ports:

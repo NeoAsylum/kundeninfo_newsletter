@@ -25,6 +25,7 @@ from app.api.schemas import (
     PreviewOut,
     RecipientCountOut,
 )
+from app.core.clock import utcnow
 from app.db.models import (
     AuditLog,
     Dispatch,
@@ -40,13 +41,13 @@ from app.mail.render import build_subject, render_mail
 
 # require_admin (Rolle aus dem Cookie) PLUS get_current_user (DB-Check auf is_active):
 # Ein offboardeter Admin behält sonst mit bestehendem Cookie bis zu 8 h Lesezugriff
-# auf Historie/Empfängerzahlen (Review-Befund). SESSION_STALE → Frontend erzwingt Re-Login.
+# auf Historie/Empfängerzahlen. SESSION_STALE → Frontend erzwingt Re-Login.
 router = APIRouter(dependencies=[Depends(require_admin), Depends(get_current_user)])
 
 
 def _build_subject_checked(severity: Severity, topic_name: str, title: str) -> str:
     """Präfix + Topic-Name (bis 120) + Titel (bis 150) können subject VARCHAR(255)
-    sprengen — 422 statt DataError/500 beim INSERT (Review-Befund)."""
+    sprengen — 422 statt DataError/500 beim INSERT."""
     subject = build_subject(severity, topic_name, title)
     if len(subject) > 255:
         raise ApiError(
@@ -125,15 +126,9 @@ async def create_dispatch(
         sent_count=0,
         failed_count=0,
         open_count=dispatch.recipient_count,
-        created_at=dispatch.created_at or _fallback_now(),
+        created_at=dispatch.created_at or utcnow(),
         finished_at=None,
     )
-
-
-def _fallback_now():
-    from app.core.clock import utcnow
-
-    return utcnow()
 
 
 async def _recipient_counts(

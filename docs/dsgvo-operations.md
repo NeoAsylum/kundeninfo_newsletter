@@ -40,9 +40,19 @@ UPDATE dispatch_recipients
 SET email = 'deleted-user@anonymized.local', user_id = NULL
 WHERE email = 'betroffener@example.corp';
 
--- Step 3: Nutzerkonto deaktiveren / löschen
+-- Step 3: Nutzerkonto löschen (subscriptions folgen per ON DELETE CASCADE)
 DELETE FROM users WHERE email = 'betroffener@example.corp';
+
+-- Step 4: audit_log prüfen — es speichert die E-Mail des HANDELNDEN (actor_email)
+-- und im JSON-Detail die des betroffenen Empfängers. Beides ist eine
+-- Rechenschaftspflicht-Aufzeichnung; löschen nur nach Abstimmung mit dem DSB:
+SELECT id, ts, action, actor_email, detail FROM audit_log
+WHERE actor_email = 'betroffener@example.corp'
+   OR JSON_EXTRACT(detail, '$.email') = 'betroffener@example.corp';
 ```
+
+Zusätzlich im IdP löschen: Das Konto selbst liegt dort, nicht im Portal. Ohne diesen
+Schritt legt die nächste Anmeldung den Portal-Datensatz per JIT neu an (ADR-0010).
 
 ---
 

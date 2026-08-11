@@ -22,32 +22,18 @@ HTTPS ausschließlich aus Cloudflare-Netzen an. Aufbau, Betrieb und Absicherung:
 | Passwort | `Demo-Stoerungsinfo-2026` |
 | Rechte | Mitarbeiter **und** Admin (Abo-Maske, Versand, Empfänger-Verwaltung) |
 
-> ⚠️ **Dieses Repository ist öffentlich.** Damit sind diese Zugangsdaten nach einem
-> `git push` im Netz auffindbar — inklusive der Adresse des Portals, das damit
-> administriert werden kann. Vor dem Push entweder das Repository auf privat
-> umstellen oder das Passwort hier entfernen und separat weitergeben.
+> ⚠️ Dieses Repository ist öffentlich — die Zugangsdaten sind damit auffindbar. Bewusst
+> in Kauf genommen: Der Zugang kann echte Mails über das konfigurierte Postfach versenden
+> und alle Empfängeradressen einsehen, die Instanz läuft aber nur für Vorführungen (siehe
+> unten). Eingrenzung für Demophasen: `MAIL_REDIRECT_TO=<eigene@adresse>` in der `.env`
+> der VM — dann landen alle Mails ausschließlich dort.
 
-**Was der Admin-Zugang kann** — vor der Weitergabe abwägen:
-
-* **alle Empfängeradressen einsehen** (bei offener Selbstregistrierung auch fremde,
-  personenbezogene Adressen),
-* **echte Mails an alle Abonnenten verschicken**, über das konfigurierte Postfach und auf
-  dessen Tageskontingent,
-* **Empfänger deaktivieren** und damit vom Versand ausschließen.
-
-Eingrenzung für Demophasen: `MAIL_REDIRECT_TO=<eigene@adresse>` in der `.env` der VM
-setzen — dann landen alle Mails ausschließlich dort, die Historie zeigt weiterhin die
-gedachten Empfänger, und niemand Fremdes wird angemailt.
-
-Zugang nach der Demo sperren (Abos und Historie bleiben erhalten):
+Zugang nach der Demo sperren (Abos und Historie bleiben erhalten), weitere anlegen:
 
 ```bash
-ssh root@<vm> 'cd /opt/stoerungsinfo && \
-    bash deploy/vm/create-user.sh plaaslinkadrian@gmail.com --disable'
+ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --disable'
+ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --admin --name "Vor Nach"'
 ```
-
-Weitere Zugänge anlegen: `bash deploy/vm/create-user.sh <mail> --admin --name "Vor Nach"`
-(ohne `--password` wird eines erzeugt, das beim ersten Anmelden geändert werden muss).
 
 ### Betrieb nur bei Bedarf
 
@@ -130,7 +116,7 @@ python ops/create_dev_user.py --email <adresse> --admin
 
 ## ⚙️ Konfiguration
 
-Die Datei [**.env.example**](file:///.env.example) ist die **einzige Konfigurations-Wahrheit** des Projekts. Sie ist vollständig kommentiert.
+Die Datei [**.env.example**](.env.example) ist die **einzige Konfigurations-Wahrheit** des Projekts. Sie ist vollständig kommentiert.
 
 Wichtige Parameter:
 * `DATABASE_URL`: Umschalter zwischen lokaler Docker-DB (`mariadb:3306`) und externer Konzern-DB.
@@ -146,10 +132,11 @@ Wichtige Parameter:
 |---|---|
 | `make dev` | DEV-Stack vollständig hochfahren (`--build --wait`) |
 | `make dev-down` | DEV-Stack stoppen |
-| `make check` | CI-Standard lokal ausführen (`lint` + `test`) |
+| `make check` | CI-Mindeststandard: `lint` + `test` + `test-db` |
 | `make test` | Fast Unit-Tests ausführen (< 30 s) |
 | `make test-integration` | Integrationstests gegen echten Docker-Stack inkl. Mailpit |
-| `make prod-localdb` | Go-Live-Zustand: PROD mit lokaler Docker-DB starten |
+| `make prod-localdb` | PROD-Konfiguration mit lokaler Docker-DB starten (vor dem DB-Cutover) |
+| `make scan` | Trivy-CVE-Scan der Images (Release-Gate) |
 | `make smoke` | Smoke-Test nach Deployment ausführen |
 
 ---
@@ -202,3 +189,4 @@ Direktzugriff auf die IP muss scheitern, die Domain muss antworten, SSH muss geh
 * ⚖️ **[docs/betriebsrat-briefing.md](docs/betriebsrat-briefing.md)** — Betriebsrat- & DSB-Argumentationsunterlage.
 * 🔐 **[docs/dsgvo-operations.md](docs/dsgvo-operations.md)** — Prozeduren für Auskunft & Löschung (Art. 15 / 17 DSGVO).
 * 📝 **[docs/adr/](docs/adr/)** — Architecture Decision Records (ADRs).
+* 📄 **[docs/mvp-umsetzungsplan-stoerungsinfos.md](docs/mvp-umsetzungsplan-stoerungsinfos.md)** — ursprünglicher Umsetzungsplan (Planungsstand, historisch).

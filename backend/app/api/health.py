@@ -49,7 +49,7 @@ async def readyz(request: Request, response: Response) -> dict:
     checks: dict[str, str] = {}
 
     # Nach außen nur generische Zustände — /readyz ist unauthentifiziert erreichbar,
-    # Verbindungsfehler enthielten sonst DB-/Relay-Hosts aus dem DSN (Review-Befund).
+    # Verbindungsfehler enthielten sonst DB-/Relay-Hosts aus dem DSN.
     # Details stehen im Log.
     try:
         async with request.app.state.sessionmaker() as session:

@@ -14,52 +14,10 @@ In PROD ohne Entsprechung: dort verwaltet der Konzern-IdP Registrierung und Mail
 """
 
 import argparse
-import pathlib
 import sys
 
 import httpx
-
-KEYCLOAK = "http://localhost:8081"
-REALM = "dev"
-
-
-def load_env() -> dict[str, str]:
-    env_file = pathlib.Path(__file__).resolve().parents[1] / ".env"
-    values: dict[str, str] = {}
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                values[key.strip()] = value.strip()
-    return values
-
-
-def _abort_if_prod() -> None:
-    """Dieses Skript ist nur für die lokale Entwicklung gedacht.
-
-    Auf dem öffentlichen Server liegt eine .env mit APP_ENV=prod und echten
-    Secrets — ein versehentlicher Aufruf (etwa im SSH-Tunnel) würde dort
-    Realm-Einstellungen überschreiben oder Konten anlegen.
-    """
-    import pathlib as _p
-    import sys as _s
-
-    for candidate in (
-        _p.Path.cwd() / ".env",
-        _p.Path(__file__).resolve().parents[1] / ".env",
-    ):
-        if not candidate.exists():
-            continue
-        for line in candidate.read_text(encoding="utf-8").splitlines():
-            if line.strip().startswith("APP_ENV=") and "prod" in line:
-                print(
-                    f"ABBRUCH: {candidate} enthält APP_ENV=prod. Dieses Skript ist nur für "
-                    "die Entwicklungsumgebung. Für den Server: deploy/vm/create-user.sh "
-                    "bzw. deploy/vm/configure-realm.sh verwenden.",
-                    file=_s.stderr,
-                )
-                raise SystemExit(2)
+from _dev_keycloak import KEYCLOAK, REALM, abort_if_prod, admin_headers, load_env
 
 
 def main() -> int:
@@ -75,7 +33,7 @@ def main() -> int:
     parser.add_argument("--keycloak-admin", default="admin")
     parser.add_argument("--keycloak-admin-password", default="admin")
     args = parser.parse_args()
-    _abort_if_prod()
+    abort_if_prod()
 
     env = load_env()
     smtp_host = env.get("SMTP_HOST", "")
@@ -128,23 +86,15 @@ def main() -> int:
 
     with httpx.Client(timeout=30) as client:
         try:
-            token_response = client.post(
-                f"{KEYCLOAK}/realms/master/protocol/openid-connect/token",
-                data={
-                    "grant_type": "password",
-                    "client_id": "admin-cli",
-                    "username": args.keycloak_admin,
-                    "password": args.keycloak_admin_password,
-                },
+            headers = admin_headers(
+                client, args.keycloak_admin, args.keycloak_admin_password
             )
-            token_response.raise_for_status()
         except httpx.HTTPError as exc:
             print(
                 f"FEHLER: Keycloak nicht erreichbar oder Login falsch ({exc})",
                 file=sys.stderr,
             )
             return 1
-        headers = {"Authorization": f"Bearer {token_response.json()['access_token']}"}
 
         update = client.put(
             f"{KEYCLOAK}/admin/realms/{REALM}", headers=headers, json=updates

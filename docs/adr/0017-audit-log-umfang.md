@@ -6,7 +6,15 @@
 
 ## Entscheidung
 
-Die append-only-Tabelle `audit_log` protokolliert im MVP **ausschließlich Admin-Aktionen** (`dispatch_created`, `topic_changed`). Abo-Änderungen (`subscribe`/`unsubscribe`) werden erst nach Freigabe über den Konfig-Schalter `AUDIT_SUBSCRIPTIONS=true` aktiviert (Code liegt bereit, Default `false`). Lese-/Öffnungsverhalten wird **nie** protokolliert ([ADR-0014]).
+Die append-only-Tabelle `audit_log` protokolliert **ausschließlich Admin-Aktionen**:
+
+| Aktion | Auslöser |
+|---|---|
+| `dispatch_created` | Störungsmeldung abgeschickt |
+| `user_activated` / `user_deactivated` | Empfänger über die Admin-API geschaltet |
+| `admin_subscribe` / `admin_unsubscribe` | Admin ändert das Abo eines anderen Nutzers |
+
+Abo-Änderungen durch die Nutzer selbst (`subscribe`/`unsubscribe`) werden erst nach Freigabe über den Konfig-Schalter `AUDIT_SUBSCRIPTIONS=true` geschrieben (Code liegt bereit, Default `false`). Topic-Änderungen laufen als RUNBOOK-SQL ([ADR-0016]) und tragen ihren `audit_log`-INSERT selbst bei. Lese-/Öffnungsverhalten wird **nie** protokolliert ([ADR-0014]).
 
 ## Konsequenzen
 

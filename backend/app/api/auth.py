@@ -104,7 +104,7 @@ async def callback(
 
 @router.post("/auth/logout")
 async def logout(request: Request, settings: SettingsDep) -> JSONResponse:
-    """POST statt GET: verhindert Drive-by-Logout per Link (Review-Befund).
+    """POST statt GET: verhindert Drive-by-Logout per Link.
 
     /auth/* liegt außerhalb der /api-CSRF-Middleware → Header-Pflicht hier explizit.
     Das Frontend ruft per fetch auf und navigiert selbst zur logout_url (IdP-End-Session).

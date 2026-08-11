@@ -186,7 +186,7 @@ async def test_admin_unbekanntes_topic_404(client, app, auth_headers, make_user)
 
 
 async def test_admin_zugriff_endet_mit_deaktiviertem_user(client, app, auth_headers, make_user):
-    """Offboarding-Fix (Review): Admin-Cookie allein reicht nicht — der DB-User muss
+    """Offboarding: Admin-Cookie allein reicht nicht — der DB-User muss
     aktiv sein, sonst 401 SESSION_STALE auch auf Lese-Endpunkten."""
     await make_user(sub=ADMIN[0], email=ADMIN[1], active=False)
     headers = auth_headers(*ADMIN, roles=["employee", "admin"])
@@ -196,7 +196,7 @@ async def test_admin_zugriff_endet_mit_deaktiviertem_user(client, app, auth_head
 
 
 async def test_betreff_ueberlauf_422_statt_500(client, app, auth_headers, make_user):
-    """Präfix + Topic-Name + Titel > 255 → sauberer 422 statt DataError (Review-Befund)."""
+    """Präfix + Topic-Name + Titel > 255 → sauberer 422 statt DataError."""
     from sqlalchemy import text
 
     await _setup_users(app, make_user)

@@ -46,21 +46,26 @@ Sobald die zentrale Datenbank-Infrastruktur freigeschaltet ist:
    ```bash
    make prod
    ```
-6. **Egress-Verbindung & Readyz prüfen**:
+6. **Erreichbarkeit prüfen** — `/readyz` deckt DB, SMTP und Outbox-Rückstau in einem
+   Aufruf ab und schlägt fehl, wenn eine Egress-Freischaltung fehlt:
    ```bash
-   ./ops/check-egress.sh
-   curl -fsS https://localhost/readyz
+   curl -fsS -k https://localhost/readyz
    ```
 
 ---
 
 ## 3. Backup & Restore (Lokale DB-Phase)
 
-* **Automatisches Backup**: Cron-Job läuft täglich um 02:00 Uhr via `ops/backup.sh`. Dumps werden unter `/var/backups/stoerungsinfo/` mit Dateirechten `600` abgelegt.
-* **Restore-Prozedur**:
+* **Backup**: `ops/backup.sh` legt einen Dump unter
+  `/var/backups/stoerungsinfo/stoerungsinfo_<datum>_<zeit>.sql.gz` ab (Rechte `600`, weil
+  er personenbezogene Klartextdaten und Passwort-Hashes enthält). Gesichert werden
+  `newsletter` und — falls vorhanden — `keycloak`. Als Cron einrichten: siehe Abschnitt 3c.
+* **Restore**: Der Dump entsteht mit `--databases` und bringt `CREATE DATABASE`/`USE` mit,
+  wird also ohne Datenbanknamen eingespielt — und als `root`, damit auch `keycloak`
+  zurückkommt:
   ```bash
-  gunzip -c /var/backups/stoerungsinfo/dump_YYYYMMDD.sql.gz | \
-    docker compose exec -T mariadb mariadb -u app -p<PASSWORD> newsletter
+  gunzip -c /var/backups/stoerungsinfo/stoerungsinfo_<datum>_<zeit>.sql.gz | \
+    docker compose exec -T mariadb sh -c 'mariadb -u root -p"$MARIADB_ROOT_PASSWORD"'
   ```
 
 ---
@@ -106,9 +111,10 @@ MAIL_FROM=<absender>                # muss zum authentifizierten Konto passen
 > hat Basic Auth für SMTP AUTH abgeschaltet, und bei Consumer-Postfächern ist SMTP-
 > Clientauthentifizierung **mailbox-seitig deaktiviert** — für Endnutzer nicht
 > aktivierbar (die PowerShell-Schalter existieren nur für Microsoft 365 mit
-> Admin-Zugriff). Auch der OAuth2-Modus scheitert dort deshalb mit demselben Fehler.
-> `SMTP_AUTH_MODE=oauth2` bleibt nutzbar für **Exchange Online mit Tenant** (relevant
-> für den Konzern-Relay, Frage B2) — siehe eigenen Abschnitt unten.
+> Admin-Zugriff). Auch Modern Auth/OAuth2 scheitert dort mit demselben Fehler, weil
+> die Sperre am Postfach hängt und nicht am Auth-Verfahren. Für ein Microsoft-Postfach
+> im Konzern-Tenant kann OAuth2 dagegen greifen — dann ist es Nacharbeit in der App
+> (ADR-0012, Frage B2).
 
 ### Empfohlen für Tests: Gmail mit App-Passwort
 
@@ -168,74 +174,13 @@ Praktikable Wege für einen echten Testversand:
 | **Mailpit** (Standard) | keiner | Zustellung nicht nötig, um Inhalt/Empfängerauflösung zu prüfen — Web-UI zeigt jede Mail |
 | **Transaktions-Mail-Dienst** (Brevo, Mailjet, SMTP2GO …) | ~15 min | SMTP mit API-Key/Passwort, Free Tier reicht; die eigene Absenderadresse wird per Klick-Mail verifiziert — damit ist Versand *von* der eigenen Adresse möglich |
 | **Gmail** mit App-Passwort | ~10 min | funktioniert weiterhin, Absender ist dann die Gmail-Adresse |
-| **Konzern-Exchange-Relay** | Antrag | der eigentliche Zielweg — üblicherweise IP-Allowlist ohne Auth (`SMTP_AUTH_MODE=none`), klärt Frage B2 |
-| **OAuth2 (Modern Auth)** | ~20 min Einrichtung | im Code umgesetzt (`SMTP_AUTH_MODE=oauth2`), Anleitung unten |
-
-### Outlook.com / Exchange Online per OAuth2 (`SMTP_AUTH_MODE=oauth2`)
-
-Der einzige Weg, aus einem Microsoft-Postfach zu senden. Einmalige Einrichtung:
-
-**1. App im Azure-Portal registrieren** ([portal.azure.com](https://portal.azure.com),
-Anmeldung mit dem Microsoft-Konto genügt — kein Abo nötig):
-
-* *Microsoft Entra ID* → *App-Registrierungen* → *Neue Registrierung*
-* Name z. B. `Stoerungsinfo SMTP`, Kontotyp: **„Konten in einem beliebigen
-  Organisationsverzeichnis und persönliche Microsoft-Konten“**, Redirect-URI leer lassen
-* Nach dem Anlegen die **Anwendungs-ID (Client)** kopieren
-* *Authentifizierung* → **„Öffentliche Clientflows zulassen“ = Ja** (zwingend für den
-  Device-Code-Flow, ohne das schlägt Schritt 2 fehl)
-* *API-Berechtigungen* → *Hinzufügen* → *APIs, die meine Organisation verwendet* →
-  `Office 365 Exchange Online` → *Delegierte Berechtigungen* → **`SMTP.Send`**
-  (bei privaten Konten optional — der v2.0-Endpunkt fragt den Scope beim Login
-  dynamisch ab und du stimmst selbst zu)
-
-**2. Refresh-Token holen** (einmalig, im Repo-Verzeichnis):
-
-```bash
-python backend/scripts/get_oauth_token.py --client-id <ANWENDUNGS-ID>
-```
-
-Das Skript zeigt eine URL und einen Code; nach der Bestätigung im Browser gibt es die
-fertigen `.env`-Zeilen aus.
-
-**3. In die `.env` übernehmen** und neu starten:
-
-```dotenv
-SMTP_HOST=smtp-mail.outlook.com
-SMTP_PORT=587
-SMTP_SECURITY=starttls
-SMTP_AUTH_MODE=oauth2
-SMTP_USER=<konto@outlook.de>          # Postfach, aus dem gesendet wird
-SMTP_OAUTH_TENANT=consumers           # privates Konto; sonst Tenant-ID
-SMTP_OAUTH_CLIENT_ID=<ANWENDUNGS-ID>
-SMTP_OAUTH_REFRESH_TOKEN=<aus Schritt 2>
-MAIL_FROM=<konto@outlook.de>          # muss zu SMTP_USER passen
-```
-
-**Betrieb:** Access-Tokens holt das Backend selbst und cacht sie bis kurz vor Ablauf
-(~1 h). Der Refresh-Token ist ein **Geheimnis** (Passwort-Äquivalent, nur in der
-`.env` mit `chmod 600`) und bleibt gültig, solange er regelmäßig genutzt wird — nach
-längerer Pause (Consumer-Konten: ~90 Tage) Schritt 2 wiederholen. Typische Fehler
-stehen im Log: `AADSTS70008` = Token abgelaufen, `AADSTS65001` = Zustimmung fehlt,
-`535` mit gültigem Token = `SMTP.Send`-Berechtigung oder falscher Scope.
-
-**Vorsicht Bounces:** Die Demo-Empfänger (`*@example.corp`) existieren nicht. Beim
-Versand über einen echten Server kommen für jeden davon Unzustellbarkeitsberichte
-zurück. Vor einem echten Test entweder nur an einen Verteiler mit erreichbaren
-Adressen senden oder die Demo-Empfänger lokal umschreiben:
-
-```sql
--- lokale DEV-DB, reversibel:
-UPDATE users SET email = '<echte@adresse.de>' WHERE oidc_sub = 'seed-demo-1';
-```
+| **Konzern-Exchange-Relay** | Antrag | der eigentliche Zielweg — üblicherweise IP-Allowlist ohne Auth (`SMTP_AUTH_MODE=none`). Verlangt der Relay Modern Auth/OAuth2, ist das Nacharbeit (ADR-0012, Frage B2) |
 
 ### Umleitung (nur wenn gewünscht)
 
-`MAIL_REDIRECT_TO=<zieladresse>` schickt **alle** Mails an diese eine Adresse; die
-Versandhistorie behält die echten Empfänger, jede Mail trägt zusätzlich
-`X-Original-Recipient`. Nützlich für Demos, ohne reale Verteiler anzuschreiben —
-erzeugt aber weiterhin **eine Mail je Empfänger** und flutet bei großen Verteilern
-das Zielpostfach. **In Produktion leer lassen.**
+`MAIL_REDIRECT_TO=<zieladresse>` schickt **alle** Mails an diese eine Adresse. Erzeugt
+weiterhin eine Mail je Empfänger und flutet bei großen Verteilern das Zielpostfach.
+**In Produktion leer lassen.**
 
 **Immer:** Nach `.env`-Änderungen neu starten (`make dev` bzw. `make prod-localdb`) —
 die Konfiguration wird beim Start gelesen. Nach Codeänderungen zusätzlich `--build`,
@@ -245,7 +190,7 @@ weil Code und Frontend ins Image gebacken sind.
 
 Für Demos außerhalb des Konzernnetzes läuft eine eigene Variante: `compose.public.yaml`.
 Unterschied zu `compose.prod.yaml`: Keycloak läuft mit (es gibt keinen Konzern-IdP),
-das Zertifikat kommt von Let us Encrypt statt aus der Konzern-PKI, und die Speicher-
+das Zertifikat kommt von Let's Encrypt statt aus der Konzern-PKI, und die Speicher-
 limits sind auf eine kleine VM (1,8 GB RAM) ausgelegt.
 
 **Aktuelle Instanz:** `https://kunden-stoerungs-info.com` auf 94.237.99.120
@@ -295,7 +240,7 @@ gesetzt sind.
 | **Adminkonsole** | Nur über SSH-Tunnel: `ssh -L 8081:localhost:8081 root@<host>`, dann `http://localhost:8081/idp/`. Zugangsdaten: `KEYCLOAK_ADMIN*` in der `.env`. |
 | **Secrets** | Alle in `/opt/stoerungsinfo/.env` (`chmod 600`), beim ersten Deploy per `openssl rand` erzeugt. Keine Dev-Werte, nichts aus dem Repo. |
 | **Registrierung** | Offen (Entscheidung des Auftraggebers), mit Bestätigungsmail und Brute-Force-Schutz. Abschalten: `registrationAllowed` per Keycloak-Adminkonsole oder `configure-realm.sh` anpassen. |
-| **Speicher** | Limits: nginx 96 MB, api 384 MB, mariadb 320 MB, keycloak 768 MB. Im Betrieb ~1,1 GB belegt, Swap als Puffer. |
+| **Speicher** | Limits: nginx 96 MB, api 320 MB, mariadb 288 MB, keycloak 640 MB, certbot 128 MB. Im Betrieb ~1,1 GB belegt, Swap als Puffer. |
 | **Reboot** | `restart: unless-stopped` + aktivierter Docker-Dienst — der Stack kommt selbstständig wieder. |
 
 ### Prüfen, ob alles läuft
@@ -412,25 +357,9 @@ Cloudflare-Bereich kommt (sonst könnte jeder eine fremde IP behaupten). Ohne di
 Datei sehen alle Ratenlimits nur Cloudflare-Adressen: Echte Nutzer sperren sich
 gegenseitig aus, ein Angreifer verteilt sich über mehrere Standorte.
 
-### Weitere Härtungsmöglichkeiten (nicht aktiviert)
-
-* **SSH auf feste Adressen beschränken** (`ufw allow from <ip> to any port 22`) — wirksam,
-  aber bei wechselnder Heim-IP sperrt man sich schnell selbst aus. Alternative: SSH auf
-  einen anderen Port legen (verringert nur das Rauschen, keine echte Sicherheit).
-* **Ausgehende Verbindungen beschränken** (`ufw default deny outgoing` plus
-  Ausnahmen für DNS, NTP, HTTPS, SMTP 587). Erschwert Datenabfluss, bricht aber leicht
-  Image-Builds und Paketaktualisierungen — nur mit Testfenster einführen.
-* **Cloudflare-Zugriffsregeln** ersetzen Firewallarbeit teilweise: Länder- oder
-  Bot-Sperren, „Under Attack"-Modus, oder eine Access-Policy vor dem Portal (dann
-  brauchte niemand mehr das offene Registrierungsformular).
-* **Docker-Ports an Loopback binden** (`127.0.0.1:8081:8081`) für Dienste, die nur über
-  einen SSH-Tunnel erreichbar sein sollen — umgeht das ufw-Problem elegant, weil gar
-  nichts nach außen veröffentlicht wird.
-
 ### Absicherung gegen Missbrauch (öffentlich = Angriffsfläche)
 
-Ein Sicherheitsreview dieser Konfiguration hat mehrere Lücken aufgedeckt, die behoben
-sind. Wer die Konfiguration ändert, sollte wissen, warum sie so aussieht:
+Wer diese Konfiguration ändert, sollte wissen, warum sie so aussieht:
 
 * **Keine Demo-Konten.** Der importierte Realm bringt DEV-Testnutzer mit dem Passwort
   `test` mit — einen davon mit Adminrolle. Öffentlich wäre das eine offene Tür zur
@@ -457,47 +386,61 @@ sind. Wer die Konfiguration ändert, sollte wissen, warum sie so aussieht:
 
 ### Offene Punkte für diese Instanz
 
-* **Backup läuft, ist aber nicht automatisiert.** `ops/backup.sh` erkennt das
-  Overlay inzwischen selbst und sichert **beide** Datenbanken (`newsletter` **und**
-  `keycloak` — ohne die zweite gäbe es nach einem Restore keine Konten mehr).
-  `deploy.sh` zieht vor jedem Ausrollen einen Dump. Für Dauerbetrieb noch als Cron
-  einrichten:
+* **Backup ist nicht automatisiert.** `ops/backup.sh` sichert beide Datenbanken
+  (`newsletter` und `keycloak` — ohne die zweite gäbe es nach einem Restore keine
+  Konten mehr), und `deploy.sh` zieht vor jedem Ausrollen einen Dump. Für Dauerbetrieb
+  als Cron einrichten und eine Kopie außerhalb der VM ablegen:
   `0 2 * * * /opt/stoerungsinfo/ops/backup.sh >> /var/log/stoerungsinfo-backup.log 2>&1`
-  und eine Kopie außerhalb der VM ablegen.
 * **`.env` existiert nur auf der VM.** Geht sie verloren, passen die generierten
   Passwörter nicht mehr zu den Daten in den Volumes (MariaDB übernimmt ein neues
   Passwort nur bei leerem Datenverzeichnis). Verschlüsselte Kopie anlegen.
 * **Offene Selbstregistrierung** ist eine bewusste Entscheidung. Wer sich registriert,
   wird Empfänger der Pflicht-Verteiler. Abschalten über die Keycloak-Adminkonsole
   (SSH-Tunnel) oder `registrationAllowed: False` in `configure-realm.sh`.
-* **Cloudflare-Proxy** steht auf „DNS only". Nach der Zertifikatsausstellung kann auf
-  „Proxied" mit *SSL/TLS → Full (strict)* umgestellt werden: versteckt die VM-IP und
-  filtert Angriffe vorab. Die Erneuerung funktioniert weiter, weil Cloudflare
-  `/.well-known/acme-challenge/` durchreicht. Danach in NGINX `set_real_ip_from` mit
-  den Cloudflare-Netzen ergänzen, sonst sehen Ratenlimits nur noch Cloudflare-IPs.
 * **Images werden auf der VM gebaut.** Während des Builds konkurriert `pip install` mit
   MariaDB und Keycloak um 1,8 GB RAM. Bei Problemen den Stack vor dem Build stoppen
   oder Images in CI bauen (ADR-0008).
-* **Kein Monitoring.** `/readyz` wird von niemandem abgefragt. Für einen echten Pilot
-  einen externen Check einrichten (Uptime-Dienst oder Cron mit Alarm-Mail).
+* **Kein Monitoring.** `/readyz` wird von niemandem abgefragt — im Demo-Betrieb mit
+  gestopptem Stack wäre ein Uptime-Check ohnehin ein Dauerfehlalarm. Für einen echten
+  Dauerbetrieb einen externen Check einrichten.
 
 ## 4. Notfall-Versand bei Systemausfall
 
 Fällt während einer Großstörung das Portal, die DB oder der IdP aus:
 
-1. **Empfängerlisten-Export**: Tägliche Exporte liegen unter `/var/backups/stoerungsinfo/recipients_*.csv`.
-2. **Manueller Versand**: Das Problemmanagement versendet die Benachrichtigung manuell über Outlook / Funktionspostfach an die exportierte CSV-Verteilerliste.
+1. **Empfängerliste beschaffen** — aus dem letzten Datenbank-Dump
+   (`/var/backups/stoerungsinfo/`) oder, solange die DB noch antwortet, direkt:
+
+   ```sql
+   SELECT u.email FROM users u JOIN subscriptions s ON s.user_id = u.id
+   WHERE s.topic_id = '<topic>' AND u.is_active = 1
+   UNION
+   SELECT email FROM users WHERE is_active = 1
+     AND (SELECT is_mandatory FROM topics WHERE id = '<topic>') = 1;
+   ```
+
+2. **Manueller Versand**: Das Problemmanagement versendet die Benachrichtigung über
+   Outlook / Funktionspostfach an diese Liste.
+
+Ein automatisierter Notfall-Export ist bewusst nicht gebaut — er wäre ein zweiter
+Versandweg, der mitgepflegt werden müsste.
 
 ---
 
 ## 5. Secret- & Zertifikats-Management
 
-* **Notfall-Session-Invalidierung**: Falls ein Secret kompromittiert wurde, `SESSION_SECRET` in `.env` ändern und `make prod` ausführen. Alle aktiven Sessions werden sofort ungültig.
-* **Zertifikatsablauf**: Das Ablaufdatum des TLS-Zertifikats wird über `/readyz` überwacht (Warnung bei < 30 Tagen Restlaufzeit).
+* **Notfall-Session-Invalidierung**: Falls ein Secret kompromittiert wurde,
+  `SESSION_SECRET` in der `.env` ändern und den Stack neu starten (`make prod` bzw. im
+  öffentlichen Pilot `bash deploy/vm/deploy.sh`). Alle aktiven Sessions werden sofort
+  ungültig, weil sie ohne Session-Store allein aus dem Cookie gelesen werden.
+* **Zertifikatsablauf**: `/readyz` prüft das Zertifikat **nicht**. Im öffentlichen Pilot
+  erneuert der Cron-Job `renew-cert.sh` unterhalb von 30 Tagen Restlaufzeit, und
+  `demo-mode.sh start` prüft die Restlaufzeit zusätzlich bei jedem Start. Im Zielbild
+  mit Konzern-PKI liegt die Überwachung beim Zertifikatsprozess des Konzerns.
 
 ---
 
-## 6. Topic-Pflege per SQL (ADR-016)
+## 6. Topic-Pflege per SQL (ADR-0016)
 
 Neue Topics oder Beschreibungsänderungen werden direkt in der Datenbank gepflegt:
 

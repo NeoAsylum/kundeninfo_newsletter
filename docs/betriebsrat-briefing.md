@@ -8,7 +8,7 @@
 
 ## 1. Ausgangslage & Zielsetzung
 
-Bisher werden Störungsinformationen über händisch gepflegte E-Mail-Verteiler in Outlook versendet. Das neue Self-Service-Portal ermöglicht es allen Mitarbeitern, ihre Abonnements für Störungsthemen selbstständig zu verwalten. Die Anmeldung erfolgt ausschließlich über das zentrale Konzern-SSO.
+Bisher werden Störungsinformationen über händisch gepflegte E-Mail-Verteiler in Outlook versendet. Das neue Self-Service-Portal ermöglicht es allen Mitarbeitern, ihre Abonnements für Störungsthemen selbstständig zu verwalten. Die Anmeldung erfolgt über einen Identity Provider, im Zielbild das zentrale Konzern-SSO — das Portal speichert selbst keine Passwörter. Im aktuellen Pilotbetrieb übernimmt ein eigener Identity Provider (Keycloak) diese Rolle, weil die Anbindung an das Konzern-SSO noch nicht erfolgt ist.
 
 ---
 
@@ -37,7 +37,7 @@ Bisher werden Störungsinformationen über händisch gepflegte E-Mail-Verteiler 
   - `subscriptions`: Zuordnung von Nutzern zu gewählten Benachrichtigungstopics.
   - `dispatches`: Historie versendeter Störungsmeldungen (Ersteller, Betreff, Text, Zeitpunkt).
   - `dispatch_recipients`: Zustellstatus je Empfänger (erforderlich für automatische Retries bei Netzwerkfehlern).
-  - `audit_log`: Im MVP auf administrative Aktionen beschränkt (`dispatch_created`). Die Protokollierung von Abo-Änderungen einzelner Mitarbeiter ist standardmäßig **deaktiviert** (`AUDIT_SUBSCRIPTIONS=false`) und bedarf der expliziten Freigabe.
+  - `audit_log`: Auf administrative Aktionen beschränkt — abgeschickte Meldungen sowie Änderungen, die ein Administrator an fremden Empfängern vornimmt (Aktivieren/Deaktivieren, Abo setzen/entfernen). Die Protokollierung von Abo-Änderungen, die Mitarbeiter **selbst** vornehmen, ist standardmäßig **deaktiviert** (`AUDIT_SUBSCRIPTIONS=false`) und bedarf der expliziten Freigabe.
 
 ---
 

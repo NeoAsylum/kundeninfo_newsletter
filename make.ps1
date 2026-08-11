@@ -71,13 +71,17 @@ switch ($Target) {
     "smoke" {
         python backend/scripts/smoke.py --base-url $BaseUrl
     }
+    "scan" {
+        trivy image --severity HIGH,CRITICAL --exit-code 1 "stoerungsinfo-api:local"; Fail-IfError
+        trivy image --severity HIGH,CRITICAL --exit-code 1 "stoerungsinfo-nginx:local"
+    }
     "check" {
         & $PSCommandPath lint; Fail-IfError
         & $PSCommandPath test; Fail-IfError
         & $PSCommandPath test-db; Fail-IfError
     }
     default {
-        Write-Output "Unbekanntes Target '$Target'. Verfügbar: install, dev, dev-down, ps, logs, prod-localdb, prod, lint, format, test, test-db, test-db-down, test-integration, seed, smoke, check"
+        Write-Output "Unbekanntes Target '$Target'. Verfügbar: install, dev, dev-down, ps, logs, prod-localdb, prod, lint, format, test, test-db, test-db-down, test-integration, seed, smoke, scan, check"
         exit 1
     }
 }

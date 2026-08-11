@@ -74,12 +74,8 @@ SMTP_USER="${SMTP_USER:-}"
 # Gequotet: Google zeigt App-Passwörter mit Leerzeichen an — ungequotet würde die
 # Datei beim Einlesen als Befehl interpretiert und der Wert abgeschnitten.
 SMTP_PASSWORD="${SMTP_PASSWORD:-}"
-SMTP_OAUTH_TENANT=consumers
-SMTP_OAUTH_CLIENT_ID=
-SMTP_OAUTH_REFRESH_TOKEN=
 # Werte mit Leerzeichen MUESSEN gequotet sein: deploy.sh liest die Datei per
 # 'source' ein, und Docker Compose entfernt umschliessende Quotes korrekt.
-SMTP_OAUTH_SCOPE="https://outlook.office.com/SMTP.Send offline_access"
 MAIL_FROM="${MAIL_FROM:-}"
 MAIL_FROM_NAME="${MAIL_FROM_NAME:-Störungsinfo}"
 MAIL_REDIRECT_TO=${MAIL_REDIRECT_TO:-}

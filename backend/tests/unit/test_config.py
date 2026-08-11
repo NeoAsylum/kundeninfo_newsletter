@@ -35,29 +35,3 @@ def test_cookie_secure_folgt_https():
 def test_callback_url():
     s = make_settings(public_base_url="http://localhost:8080")
     assert s.callback_url == "http://localhost:8080/auth/callback"
-
-
-def test_oauth2_erfordert_client_id_und_refresh_token():
-    with pytest.raises(ValidationError):
-        make_settings(smtp_auth_mode="oauth2", smtp_user="konto@outlook.de")
-    settings = make_settings(
-        smtp_auth_mode="oauth2",
-        smtp_user="konto@outlook.de",
-        smtp_oauth_client_id="client-1",
-        smtp_oauth_refresh_token="refresh-1",
-    )
-    assert settings.smtp_auth_mode == "oauth2"
-    assert settings.oauth_token_url == (
-        "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
-    )
-
-
-def test_oauth_token_url_mit_tenant():
-    settings = make_settings(
-        smtp_auth_mode="oauth2",
-        smtp_user="konto@konzern.example",
-        smtp_oauth_client_id="client-1",
-        smtp_oauth_refresh_token="refresh-1",
-        smtp_oauth_tenant="11111111-2222-3333-4444-555555555555",
-    )
-    assert "11111111-2222-3333-4444-555555555555" in settings.oauth_token_url

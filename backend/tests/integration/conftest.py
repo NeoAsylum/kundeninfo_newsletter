@@ -19,11 +19,6 @@ MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://localhost:8025")
 pytestmark = pytest.mark.integration
 
 
-def pytest_collection_modifyitems(items):
-    for item in items:
-        item.add_marker(pytest.mark.integration)
-
-
 @pytest.fixture(scope="session", autouse=True)
 def stack_muss_laufen():
     try:

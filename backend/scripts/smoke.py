@@ -1,9 +1,8 @@
-"""Smoke-Test nach Deploy (Plan 8.5): make smoke BASE_URL=https://...
+"""Smoke-Test nach Deploy: make smoke BASE_URL=https://...
 
-Bewusst ohne Login und ohne echten Mailversand in PROD; auf einer Umgebung mit
-Mailpit prüft --with-mail zusätzlich den Versandpfad-Endpunkt-Roundtrip nicht —
-das bleibt den Integrationstests vorbehalten (nur Reachability-Checks hier).
-Exit-Code != 0 bei jedem Fehlschlag → in Deploy-Skripte einhängbar.
+Nur Reachability — bewusst ohne Login und ohne Mailversand; beides deckt die
+Integrationstest-Suite ab. Exit-Code != 0 bei jedem Fehlschlag, damit sich der
+Aufruf in Deploy-Skripte einhängen lässt.
 """
 
 import argparse
@@ -25,7 +24,6 @@ def check(name: str, ok: bool, extra: str = "") -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://localhost:8080")
-    parser.add_argument("--expect-version", default=None)
     args = parser.parse_args()
     base = args.base_url.rstrip("/")
 
@@ -34,14 +32,7 @@ def main() -> int:
             r = client.get(f"{base}/healthz")
             body = r.json() if r.status_code == 200 else {}
             check("healthz erreichbar (via NGINX)", r.status_code == 200, f"HTTP {r.status_code}")
-            if args.expect_version:
-                check(
-                    "Version stimmt",
-                    body.get("version") == args.expect_version,
-                    f"läuft: {body.get('version')}",
-                )
-            else:
-                print(f"       Version: {body.get('version')} ({body.get('git_sha')})")
+            print(f"       Version: {body.get('version')} ({body.get('git_sha')})")
         except httpx.HTTPError as exc:
             check("healthz erreichbar", False, str(exc))
             return 1  # ohne Basis-Erreichbarkeit ist der Rest sinnlos

@@ -146,7 +146,7 @@ async def test_admin_abo_pflege_mit_audit(client, app, auth_headers, make_user):
 
     # Admin-Fremdänderungen werden auditiert (unabhängig vom AUDIT_SUBSCRIPTIONS-
     # Schalter, ADR-0017) — aber nur ECHTE Änderungen: idempotente Wiederholungen
-    # erzeugen keine Einträge, das Log soll keine Eingriffe erfinden (Review-Befund)
+    # erzeugen keine Einträge, das Log soll keine Eingriffe erfinden
     actions = await _audit_actions(app)
     assert actions.count("admin_subscribe") == 1
     assert actions.count("admin_unsubscribe") == 1
@@ -206,7 +206,7 @@ async def test_unauthentifiziert_401(client):
 
 
 async def test_suche_escaped_like_wildcards(client, app, auth_headers, make_user):
-    """'_'/'%' aus der Suche matchen wörtlich, nicht als Wildcard (Review-Befund)."""
+    """'_'/'%' aus der Suche matchen wörtlich, nicht als Wildcard."""
     await make_user(sub=ADMIN[0], email=ADMIN[1])
     await make_user(sub="s1", email="vorname_nachname@example.corp")
     await make_user(sub="s2", email="vornameXnachname@example.corp")
@@ -223,7 +223,7 @@ async def test_suche_escaped_like_wildcards(client, app, auth_headers, make_user
 
 
 async def test_abo_auf_deaktiviertem_topic_aufraeumbar(client, app, auth_headers, make_user):
-    """Anzeige/Pflege-Symmetrie (Review-Befund): Abos auf inzwischen deaktivierte
+    """Anzeige/Pflege-Symmetrie: Abos auf inzwischen deaktivierte
     Topics bleiben sichtbar UND entfernbar."""
     from sqlalchemy import text
 

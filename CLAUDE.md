@@ -2,8 +2,10 @@
 
 **Projekt:** Self-Service-Portal „Störungsinfos“ — ersetzt händisch gepflegte Outlook-Verteiler
 durch DB-gepflegte Abos; Versand von Störungs-/Entwarnungsmails an bis zu ~5.000 Empfänger.
-Maßgeblich: [docs/mvp-umsetzungsplan-stoerungsinfos.md](docs/mvp-umsetzungsplan-stoerungsinfos.md)
-und die ADRs in [docs/adr/](docs/adr/).
+Maßgeblich für den Ist-Stand: die ADRs in [docs/adr/](docs/adr/), [README](README.md) und
+[docs/RUNBOOK.md](docs/RUNBOOK.md). Der
+[Umsetzungsplan](docs/mvp-umsetzungsplan-stoerungsinfos.md) ist der ursprüngliche
+Planungsstand — bei Widersprüchen gewinnen Code und ADRs.
 
 ## Pflichten (Definition of Done gilt pro Change)
 
@@ -33,7 +35,7 @@ und die ADRs in [docs/adr/](docs/adr/).
   nicht raten, sondern konfigurierbar halten; offene Punkte gehören in `docs/open-questions.md`.
 - Pflicht-Topics sind **implizit** (keine subscriptions-Zeilen, ADR-0009); Topic-Pflege läuft
   per RUNBOOK-SQL, es gibt absichtlich kein Admin-Topic-CRUD (ADR-0016).
-- DEV-Stack läuft ohne Bind-Mounts (Docker-Desktop/OneDrive-Falle); Live-Reload nur über
-  `compose.dev.reload.yaml`. Frontend/Realm sind in Images eingebacken → nach Änderungen
-  `make dev` (baut neu).
+- DEV-Stack läuft ohne Bind-Mounts (Docker-Desktop/OneDrive-Falle), also kein Live-Reload.
+  Code, Frontend und Realm sind in Images eingebacken → nach Änderungen `make dev`
+  (baut neu, dauert Sekunden).
 - Windows-Entwicklung: `make` existiert nicht — `.\make.ps1 <target>` verwenden.

@@ -9,7 +9,7 @@
 
 Ein Change ist fertig, wenn:
 
-1. **Tests** grün und für neue Logik erweitert; `make check` läuft durch (Lint + Unit + API); Coverage-Gate (80 % auf `app/domain` + `app/mail`) gehalten.
+1. **Tests** grün und für neue Logik erweitert; `make check` läuft durch (`lint` + `test` + `test-db`, also Ruff/mypy, Unit-Tests und API-Tests gegen die MariaDB-tmpfs); Coverage-Gate (80 % auf `app/domain` + `app/mail`) gehalten.
 2. **`.env.example`** bei jeder ENV-Änderung aktualisiert — das CI-Gate `backend/scripts/check_env_example.py` erzwingt es.
 3. **`docs/ARCHITECTURE.md`** aktualisiert bei neuen Komponenten oder Verbindungen — **jede neue Netzverbindung braucht eine Zeile in der Egress-/Ingress-Matrix**.
 4. **ADR** geschrieben bei Architekturentscheidungen (`docs/adr/0000-template.md`; nie löschen, nur „abgelöst durch NNNN“).

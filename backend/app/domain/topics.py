@@ -1,6 +1,6 @@
 """Gemeinsame Topic-Helfer für Self-Service- und Admin-Routen.
 
-Ein Modul statt privater Kopien in drei Routern (Review-Befund): Fehlercodes und
+Ein Modul statt privater Kopien in drei Routern: Fehlercodes und
 Wortlaut bleiben überall identisch.
 """
 

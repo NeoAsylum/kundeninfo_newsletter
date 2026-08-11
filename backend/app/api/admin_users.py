@@ -71,7 +71,7 @@ async def list_users(
     if query.strip():
         # E-Mail-only-Suche (die Maske zeigt keine Namen — Treffer auf unsichtbare
         # Felder wären irreführend). LIKE-Wildcards escapen: '_'/'%' sind in
-        # E-Mail-Konventionen üblich und sollen wörtlich matchen (Review-Befund)
+        # E-Mail-Konventionen üblich und sollen wörtlich matchen
         escaped = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         conditions.append(User.email.ilike(f"%{escaped}%", escape="\\"))
     if is_active is not None:
@@ -165,7 +165,7 @@ async def admin_unsubscribe(
 ) -> None:
     user = await _get_user(session, user_id)
     # only_active=False: Abos auf inzwischen deaktivierte Topics müssen aufräumbar
-    # bleiben — die Liste zeigt sie ja auch an (Review-Befund Anzeige/Pflege-Asymmetrie)
+    # bleiben — die Liste zeigt sie ja auch an
     topic = await get_topic(session, topic_id, only_active=False)
     guard_mandatory(topic)
     result = await session.execute(

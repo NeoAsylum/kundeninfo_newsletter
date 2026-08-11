@@ -114,8 +114,8 @@ class OutboxWorker:
 
     async def _process_isolated(self, dispatch_id: int) -> None:
         """Fehlerisolation pro Auftrag: Ein defekter Dispatch darf weder die übrigen
-        'sending'-Aufträge noch das Claiming neuer Aufträge blockieren (Review-Befund:
-        sonst Starvation, weil own_ids sortiert ist und derselbe Auftrag immer zuerst kommt)."""
+        'sending'-Aufträge noch das Claiming neuer Aufträge blockieren. Sonst käme es zu
+        Starvation, weil own_ids sortiert ist und derselbe Auftrag immer zuerst kommt."""
         try:
             await self.process_dispatch(dispatch_id)
         except Exception:
@@ -239,7 +239,7 @@ class OutboxWorker:
                 # Nachladen + Nachrichtenbau gehören MIT ins Fehlerhandling: Eine
                 # deterministisch kaputte Adresse (z. B. Headerzeichen aus dem IdP)
                 # würde sonst nie auf failed laufen und den Auftrag ewig in
-                # 'sending' halten (Review-Befund "Poison-Empfänger").
+                # 'sending' halten.
                 try:
                     async with self._sm() as session:
                         recipient = (

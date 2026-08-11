@@ -71,11 +71,15 @@ JSON
 fi
 
 # --- Firewall: erst Regeln, dann aktivieren (Reihenfolge ist kritisch) --------
+# Nur Host-Ebene. Veröffentlichte Container-Ports gehen per DNAT an ufw vorbei —
+# darum kümmert sich firewall.sh mit einer eigenen Kette in DOCKER-USER. Die
+# Regeln hier sind deckungsgleich mit dessen ufw-Teil, damit ein erneuter Lauf
+# dieses Skripts die Verbindungsbremse für SSH nicht wieder aufhebt.
 log "Firewall konfigurieren"
 ufw --force reset >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
-ufw allow 22/tcp comment 'SSH' >/dev/null
+ufw limit 22/tcp comment 'SSH (rate limited)' >/dev/null
 ufw allow 80/tcp comment 'HTTP (ACME + Redirect)' >/dev/null
 ufw allow 443/tcp comment 'HTTPS' >/dev/null
 ufw --force enable >/dev/null

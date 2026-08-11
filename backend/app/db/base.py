@@ -14,7 +14,7 @@ def make_engine(database_url: str) -> AsyncEngine:
     # Session-Zeitzone fest auf UTC: server_default NOW() (created_at, audit_log.ts)
     # und app-seitige naive utcnow()-Zeitstempel müssen dieselbe Quelle haben —
     # sonst verschieben sich Rückstau-Check und Retention, sobald die externe
-    # Konzern-DB nicht in UTC läuft (Review-Befund Zeitzonen-Mix).
+    # Konzern-DB nicht in UTC läuft.
     return create_async_engine(
         database_url,
         pool_recycle=1800,

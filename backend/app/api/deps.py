@@ -51,5 +51,4 @@ async def get_current_user(
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 IdentityDep = Annotated[Identity, Depends(get_identity)]
-AdminDep = Annotated[Identity, Depends(require_admin)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
