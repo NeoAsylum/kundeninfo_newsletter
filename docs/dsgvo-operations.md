@@ -11,7 +11,7 @@ Export aller zu einer E-Mail-Adresse gespeicherten Daten als JSON:
 ```sql
 -- Nutzerstamm & Abos abfragen
 SELECT 
-    u.id, u.oidc_sub, u.email, u.display_name, u.created_at, u.last_login_at,
+    u.id, u.oidc_sub, u.email, u.created_at, u.last_login_at,
     u.is_active, u.is_admin,
     GROUP_CONCAT(s.topic_id) AS active_subscriptions
 FROM users u
@@ -75,7 +75,6 @@ DELETE FROM users WHERE email = 'betroffener@example.corp';
 -- Rechenschaftspflicht-Aufzeichnung. Mit dem DSB abstimmen und im Change vermerken.
 UPDATE users SET
     email = CONCAT('deleted-', id, '@anonymized.local'),
-    display_name = NULL,
     oidc_sub = CONCAT('deleted-', id),
     is_active = 0,
     is_admin = 0,

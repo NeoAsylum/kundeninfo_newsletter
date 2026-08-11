@@ -12,14 +12,14 @@ async def _all_users(app) -> list[User]:
         return list((await session.execute(select(User).order_by(User.id))).scalars())
 
 
-async def _login(app, sub: str, email: str, name: str = "Test") -> None:
+async def _login(app, sub: str, email: str) -> None:
     async with app.state.sessionmaker() as session:
-        await jit_upsert(session, Identity(sub=sub, email=email, display_name=name))
+        await jit_upsert(session, Identity(sub=sub, email=email))
         await session.commit()
 
 
 async def test_erster_login_legt_user_an(app):
-    await _login(app, "sub-a", "mia@example.corp", "Mia")
+    await _login(app, "sub-a", "mia@example.corp")
     users = await _all_users(app)
     assert len(users) == 1
     assert users[0].oidc_sub == "sub-a"
@@ -30,11 +30,10 @@ async def test_erster_login_legt_user_an(app):
 
 async def test_erneuter_login_aktualisiert(app):
     await _login(app, "sub-a", "mia@example.corp")
-    await _login(app, "sub-a", "mia.neu@example.corp", "Mia Neu")
+    await _login(app, "sub-a", "mia.neu@example.corp")
     users = await _all_users(app)
     assert len(users) == 1
     assert users[0].email == "mia.neu@example.corp"
-    assert users[0].display_name == "Mia Neu"
 
 
 async def test_email_kollision_archiviert_altzeile(app):

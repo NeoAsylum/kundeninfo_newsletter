@@ -82,7 +82,6 @@ def make_user(app):
     async def _make(
         sub: str = "sub-user-1",
         email: str = "user1@example.corp",
-        name: str | None = "User Eins",
         active: bool = True,
         admin: bool = False,
     ) -> User:
@@ -93,7 +92,6 @@ def make_user(app):
             user = User(
                 oidc_sub=sub,
                 email=email,
-                display_name=name,
                 is_active=active,
                 is_admin=admin,
             )

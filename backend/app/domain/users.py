@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.clock import utcnow
 from app.core.config import Settings
 from app.core.security import Identity
-from app.db.models import User
+from app.db.models import AuditLog, User
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,16 @@ async def _bootstrap_admin_if_orphaned(
     if aktive_admins:
         return
     user.is_admin = True
+    # Auditieren wie jede andere Rechtevergabe (ADR-0017/0022) — dies ist die einzige,
+    # bei der kein Mensch gehandelt hat. Eigene Aktion, damit im Berechtigungsreview
+    # unterscheidbar bleibt, dass die Konfiguration und nicht ein Admin entschieden hat.
+    session.add(
+        AuditLog(
+            actor_email=user.email,
+            action="admin_bootstrap",
+            detail={"user_id": user.id, "grund": "kein aktiver Admin vorhanden"},
+        )
+    )
     await session.flush()
     log.warning(
         "Adminrecht per ADMIN_BOOTSTRAP_EMAILS vergeben (User %s) — es gab keinen aktiven "
@@ -82,7 +92,6 @@ async def jit_upsert(
         user = User(
             oidc_sub=identity.sub,
             email=identity.email,
-            display_name=identity.display_name,
             is_active=True,
             last_login_at=utcnow(),
         )
@@ -91,7 +100,6 @@ async def jit_upsert(
         if user.email != identity.email:
             await _archive_email_conflict(session, identity.email, identity.sub)
         user.email = identity.email
-        user.display_name = identity.display_name
         # Login beweist ein aktives IdP-Konto → Reaktivierung nach Offboarding-Irrtum
         user.is_active = True
         user.last_login_at = utcnow()

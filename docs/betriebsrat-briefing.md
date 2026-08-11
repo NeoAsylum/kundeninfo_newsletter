@@ -21,7 +21,10 @@ Bisher werden Störungsinformationen über händisch gepflegte E-Mail-Verteiler 
 2. **Datenminimierung**: In der Datenbank werden ausschließlich betrieblich notwendige Attribute gespeichert:
    - SSO-Kennung (`oidc_sub`)
    - E-Mail-Adresse (`email`)
-   - Anzeigename (`display_name`, optional)
+   - **Kein Name.** Das Portal übernimmt den Namen bewusst nicht aus dem
+     Identity Provider, speichert ihn nicht und zeigt ihn nirgends an — Adressierung
+     und Anzeige laufen über die E-Mail-Adresse (ADR-0025). Bereits gespeicherte Namen
+     wurden mit der Umstellung gelöscht.
    - Status (`is_active`)
    - Zeitstempel der letzten Anmeldung (`last_login_at`)
 3. **Schutz der Entwickler- und Protokolldateien**:

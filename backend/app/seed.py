@@ -14,9 +14,9 @@ from app.db.base import make_engine, make_sessionmaker
 from app.db.models import Subscription, User
 
 DEMO_USERS = [
-    ("seed-demo-1", "demo1@example.corp", "Demo Eins", ["kap", "interflex"]),
-    ("seed-demo-2", "demo2@example.corp", "Demo Zwei", ["kap"]),
-    ("seed-demo-3", "demo3@example.corp", "Demo Drei", []),
+    ("seed-demo-1", "demo1@example.corp", ["kap", "interflex"]),
+    ("seed-demo-2", "demo2@example.corp", ["kap"]),
+    ("seed-demo-3", "demo3@example.corp", []),
 ]
 
 
@@ -25,12 +25,12 @@ async def seed() -> None:
     engine = make_engine(settings.database_url)
     sessionmaker = make_sessionmaker(engine)
     async with sessionmaker() as session:
-        for sub, email, name, topic_ids in DEMO_USERS:
+        for sub, email, topic_ids in DEMO_USERS:
             user = (
                 await session.execute(select(User).where(User.oidc_sub == sub))
             ).scalar_one_or_none()
             if user is None:
-                user = User(oidc_sub=sub, email=email, display_name=name, is_active=True)
+                user = User(oidc_sub=sub, email=email, is_active=True)
                 session.add(user)
                 await session.flush()
             for topic_id in topic_ids:

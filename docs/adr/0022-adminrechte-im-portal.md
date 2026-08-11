@@ -20,7 +20,7 @@ def is_admin(user: User) -> bool:
 
 `require_admin` hängt an `get_current_user` und liest damit **bei jeder Anfrage** die
 Datenbank — die Autorisierung steht nicht mehr im Session-Cookie. Das Cookie trägt nur
-noch Identität (`sub`, E-Mail, Anzeigename) und die Basisrolle `employee`; `/api/v1/me`
+noch Identität (`sub`, E-Mail — keinen Namen, [ADR-0025]) und die Basisrolle `employee`; `/api/v1/me`
 leitet die Rollen aus derselben Funktion ab, die auch autorisiert.
 
 Gepflegt wird das Recht über `PUT`/`DELETE /api/v1/admin/users/{id}/admin` und die Maske

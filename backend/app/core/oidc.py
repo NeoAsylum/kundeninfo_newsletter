@@ -196,10 +196,10 @@ class OidcClient:
         # (users.is_admin, ADR-0022). Das Cookie trägt nur noch die Basisrolle, damit
         # keine Berechtigung an einer Stelle entsteht, die niemand mehr prüft.
         roles = ["employee"]
-        display_name = claims.get("name") or claims.get("preferred_username")
+        # Der Name-Claim wird bewusst NICHT gelesen (ADR-0025) — das Portal zeigt
+        # keine Personennamen an, also gibt es keinen Grund, sie zu übernehmen.
         return Identity(
             sub=str(claims["sub"]),
             email=str(email).lower(),
-            display_name=display_name,
             roles=roles,
         )

@@ -10,7 +10,6 @@ SeverityLiteral = Literal["stoerung", "einschraenkung", "entwarnung"]
 
 class MeOut(BaseModel):
     email: str
-    display_name: str | None
     roles: list[str]
 
 
@@ -65,7 +64,6 @@ class AdminUserOut(BaseModel):
 
     id: int
     email: str
-    display_name: str | None
     is_active: bool
     # Im Portal vergebenes Adminrecht (ADR-0022). Sagt NICHT, ob die Person zusätzlich
     # über eine IdP-Rolle Admin ist — das erfährt der Server erst bei deren Anmeldung.

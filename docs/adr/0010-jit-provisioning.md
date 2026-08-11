@@ -6,7 +6,7 @@
 
 ## Entscheidung
 
-Ein `users`-Datensatz entsteht beim **ersten erfolgreichen Login** (Upsert auf das stabile `oidc_sub`-Claim); `email`, `display_name`, `last_login_at` werden bei jedem Login aktualisiert. **E-Mail-Kollisionsbehandlung ist verbindlich** (Unit-getestet): Hängt die Adresse an einer Alt-Zeile mit anderem `sub` (Recycling/Namenswechsel), wird die Alt-Zeile deaktiviert und ihre Adresse archiviert (`user-<id>@invalid.archiviert`) — der Login bricht nie mit Constraint-Fehler ab. Login reaktiviert deaktivierte User (IdP-Konto beweist Existenz).
+Ein `users`-Datensatz entsteht beim **ersten erfolgreichen Login** (Upsert auf das stabile `oidc_sub`-Claim); `email` und `last_login_at` werden bei jedem Login aktualisiert (der Name seit [ADR-0025](0025-keine-personennamen.md) nicht mehr). **E-Mail-Kollisionsbehandlung ist verbindlich** (Unit-getestet): Hängt die Adresse an einer Alt-Zeile mit anderem `sub` (Recycling/Namenswechsel), wird die Alt-Zeile deaktiviert und ihre Adresse archiviert (`user-<id>@invalid.archiviert`) — der Login bricht nie mit Constraint-Fehler ab. Login reaktiviert deaktivierte User (IdP-Konto beweist Existenz).
 
 ## Konsequenzen
 

@@ -20,4 +20,4 @@ async def me(identity: IdentityDep, user: CurrentUserDep) -> MeOut:
     roles = ["employee"]
     if is_admin(user):
         roles.append("admin")
-    return MeOut(email=identity.email, display_name=identity.display_name, roles=roles)
+    return MeOut(email=identity.email, roles=roles)

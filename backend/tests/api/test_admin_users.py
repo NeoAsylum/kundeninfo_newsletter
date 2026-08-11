@@ -8,10 +8,10 @@ ADMIN = ("sub-admin", "admin1@example.corp")
 
 
 async def _setup(app, make_user):
-    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin", admin=True)
-    mia = await make_user(sub="s1", email="mia@example.corp", name="Mia Muster")
-    max_ = await make_user(sub="s2", email="max@example.corp", name="Max Beispiel")
-    inactive = await make_user(sub="s3", email="alt@example.corp", name="Alt", active=False)
+    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
+    mia = await make_user(sub="s1", email="mia@example.corp")
+    max_ = await make_user(sub="s2", email="max@example.corp")
+    inactive = await make_user(sub="s3", email="alt@example.corp", active=False)
     async with app.state.sessionmaker() as session:
         session.add(Subscription(user_id=mia.id, topic_id="kap"))
         session.add(Subscription(user_id=mia.id, topic_id="interflex"))

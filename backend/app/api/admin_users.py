@@ -51,7 +51,6 @@ def _to_out(user: User, topic_ids: list[str]) -> AdminUserOut:
     return AdminUserOut(
         id=user.id,
         email=user.email,
-        display_name=user.display_name,
         is_active=user.is_active,
         is_admin=user.is_admin,
         subscribed_topic_ids=topic_ids,

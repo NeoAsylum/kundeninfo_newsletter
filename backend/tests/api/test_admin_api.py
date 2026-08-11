@@ -7,7 +7,7 @@ ADMIN = ("sub-admin", "admin1@example.corp")
 
 async def _setup_users(app, make_user):
     """Admin + 2 Abonnenten (kap) + 1 inaktiver Abonnent + 1 ohne Abo."""
-    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin", admin=True)
+    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
     u1 = await make_user(sub="s1", email="mia@example.corp")
     u2 = await make_user(sub="s2", email="max@example.corp")
     u3 = await make_user(sub="s3", email="inaktiv@example.corp", active=False)

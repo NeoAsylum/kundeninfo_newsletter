@@ -91,7 +91,7 @@ async def test_liste_zeigt_zaehler_und_auch_inaktive_verteiler(
 ):
     """Zwei Sichten auf denselben Bestand: die Adminmaske braucht die deaktivierten
     Verteiler zum Reaktivieren, die Abo-Maske darf sie nicht mehr anbieten."""
-    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin", admin=True)
+    admin = await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
     mia = await make_user(sub="s1", email="mia@example.corp")
     async with app.state.sessionmaker() as session:
         session.add(Subscription(user_id=mia.id, topic_id="kap"))

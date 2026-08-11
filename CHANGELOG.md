@@ -13,6 +13,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
   - **Erster Admin:** Migration 0003 übernimmt, wer belegbar bereits als Admin gehandelt hat (Ersteller von Versänden, Akteure im Audit-Log — mit Zeitachsen-Prüfung, weil E-Mail-Adressen recycelt werden). Darüber hinaus `ADMIN_BOOTSTRAP_EMAILS`: gelistete Adressen bekommen beim Login das Recht, aber nur solange kein aktiver Admin existiert. Damit ist die Liste im Normalbetrieb wirkungslos und taugt nicht als Hintertür (RUNBOOK 6b).
   - Der Schalter `--admin` in `deploy/vm/create-user.sh` und `ops/create_dev_user.py` ist entfallen: Ein IdP-Konto anzulegen vergibt keine Rechte mehr.
 
+### Datenschutz & Robustheit
+
+- **Keine Personennamen mehr** (ADR-0025): Das Portal liest den Namens-Claim nicht, führt ihn nicht im Session-Cookie, speichert ihn nicht und liefert ihn in keiner API-Antwort aus. Angezeigt wurde er ohnehin nirgends — die Empfänger-Maske ist verteiler-zentriert ohne Namensspalte, die Suche E-Mail-only. Migration 0004 leert die Bestandswerte; die Spalte bleibt, weil Migrationen additiv sind (ADR-0011). Vor- und Nachname im IdP bleiben Pflicht, sonst hängt Keycloak den Login an `VERIFY_PROFILE` auf.
+- **Empfängeradressen konnten über Tracebacks ins Log gelangen:** SQLAlchemy hängt an jede DBAPI-Fehlermeldung den Block `[parameters: (...)]`. Bei einem Unique-Verstoß oder DB-Aussetzer während eines Versands stand die Adresse damit im Klartext im Anwendungslog — was ADR-0014 ausschließt und der Query-String-Filter nicht abdeckt (der greift nur Formatargumente, nicht `exc_info`). Nachgestellt und mit `hide_parameters=True` geschlossen.
+- **Bootstrap-Vergabe wird auditiert** (`admin_bootstrap`): Die einzige Rechtevergabe ohne handelnden Menschen war im `audit_log` nicht nachweisbar, obwohl ADR-0022 die Protokollierung zusagt.
+- **Migration 0003 ist wiederholbar:** MariaDB committet DDL sofort, die Bestandsübernahme darunter nicht — brach sie ab, lief der zweite Anlauf in „Duplicate column name" und der API-Container startete in einer Endlosschleife. Der Spaltenanbau prüft jetzt erst den Bestand.
+- **Art.-17-Löschung kollisionsfest:** Die Prozedur setzte eine konstante Ersatzadresse gegen `UNIQUE (dispatch_id, email)` — bei einem Pflicht-Verteiler steckt jeder Beschäftigte im selben Versand, ab dem zweiten Löschantrag brach sie mit Fehler 1062 ab und die Anonymisierung fand nicht statt.
+
 ### Dokumentation
 
 - Drei neue ADRs (0022 Adminrechte im Portal, 0023 Meldungshistorie für alle, 0024 Verteiler-CRUD); ADR-0016 abgelöst, ADR-0013 teilweise abgelöst, ADR-0017 um die neuen Audit-Aktionen erweitert.

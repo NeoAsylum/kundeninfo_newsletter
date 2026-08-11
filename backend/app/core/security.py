@@ -24,11 +24,13 @@ STATE_MAX_AGE = 600  # 10 min für den Login-Roundtrip
 class Identity:
     """Wer angemeldet ist — bewusst OHNE Berechtigungen. Adminrechte stehen in der
     Datenbank und werden bei jeder Anfrage dort geprüft (ADR-0022); eine Rolle im
-    Cookie wäre eine zweite, nie widerrufbare Wahrheit."""
+    Cookie wäre eine zweite, nie widerrufbare Wahrheit.
+
+    Ebenso bewusst ohne Personennamen (ADR-0025): Das Portal adressiert über die
+    E-Mail, der Name wurde nirgends angezeigt und ist damit Datenhaltung ohne Zweck."""
 
     sub: str
     email: str
-    display_name: str | None = None
     roles: list[str] = field(default_factory=list)
 
 
@@ -59,7 +61,6 @@ def session_cookie_value(settings: Settings, identity: Identity) -> str:
         {
             "sub": identity.sub,
             "email": identity.email,
-            "name": identity.display_name,
             "roles": identity.roles,
         },
         settings.session_max_age,
@@ -75,6 +76,5 @@ def read_session(settings: Settings, cookie: str | None) -> Identity | None:
     return Identity(
         sub=str(data["sub"]),
         email=str(data["email"]),
-        display_name=data.get("name"),
         roles=list(data.get("roles", [])),
     )

@@ -62,6 +62,9 @@ class User(Base):
     # Stabiler IdP-Anker — die einzige harte Identität (E-Mails ändern sich, ADR-010)
     oidc_sub: Mapped[str] = mapped_column(String(255), unique=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)
+    # Ungenutzt seit ADR-0025: Das Portal verarbeitet keine Personennamen mehr.
+    # Die Spalte bleibt, weil Migrationen additiv sind (ADR-0011); Migration 0004 hat
+    # die Bestandswerte geleert, geschrieben wird sie von nirgendwo.
     display_name: Mapped[str | None] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     # Das Adminrecht — die EINZIGE Quelle dafür (ADR-0022). Rollen aus dem IdP-Token

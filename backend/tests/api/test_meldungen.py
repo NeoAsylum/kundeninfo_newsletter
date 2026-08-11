@@ -44,8 +44,8 @@ ROHER_TEXT = (
 async def _setup(make_user, leser_aktiv: bool = True):
     """Legt Leser und Autor an und gibt den Autor zurück: `created_by_user_id` zeigt mit
     RESTRICT auf users, ein Versand braucht also einen echten Nutzer."""
-    await make_user(sub=MITARBEITER[0], email=MITARBEITER[1], name="Mia Muster", active=leser_aktiv)
-    return await make_user(sub=AUTOR[0], email=AUTOR[1], name="Petra Admin", admin=True)
+    await make_user(sub=MITARBEITER[0], email=MITARBEITER[1], active=leser_aktiv)
+    return await make_user(sub=AUTOR[0], email=AUTOR[1], admin=True)
 
 
 async def _versand(

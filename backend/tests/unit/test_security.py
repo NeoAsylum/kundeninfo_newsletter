@@ -11,7 +11,7 @@ from tests.conftest import make_settings
 
 
 def test_session_roundtrip(settings):
-    identity = Identity(sub="abc", email="a@b.c", display_name="A", roles=["employee"])
+    identity = Identity(sub="abc", email="a@b.c", roles=["employee"])
     cookie = session_cookie_value(settings, identity)
     restored = read_session(settings, cookie)
     assert restored == identity

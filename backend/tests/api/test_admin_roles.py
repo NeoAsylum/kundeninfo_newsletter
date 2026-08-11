@@ -23,7 +23,7 @@ NUR_EMPLOYEE = ["employee"]
 async def _handelnder_admin(make_user) -> User:
     """Admin ausschließlich per Portal-Kennzeichen — so hilft die IdP-Rolle in den
     Vergabe-Tests nirgends mit, und der DB-Weg wird nebenbei mitgeprüft."""
-    return await make_user(sub=ADMIN[0], email=ADMIN[1], name="Petra Admin", admin=True)
+    return await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
 
 
 async def _audit(app) -> list[AuditLog]:
@@ -45,7 +45,7 @@ async def _kennzeichen(app, user_id: int) -> bool:
 
 async def test_vergabe_setzt_kennzeichen(client, app, auth_headers, make_user):
     await _handelnder_admin(make_user)
-    mia = await make_user(sub="s1", email="mia@example.corp", name="Mia Muster")
+    mia = await make_user(sub="s1", email="mia@example.corp")
     async with app.state.sessionmaker() as session:
         session.add(Subscription(user_id=mia.id, topic_id="kap"))
         await session.commit()
@@ -136,7 +136,7 @@ async def test_selbstentzug_409(client, app, auth_headers, make_user):
 async def test_vergabe_an_deaktivierten_empfaenger_409(client, app, auth_headers, make_user):
     """Das Recht hätte keine Wirkung — die Anmeldung endet vorher mit SESSION_STALE."""
     await _handelnder_admin(make_user)
-    alt = await make_user(sub="s3", email="alt@example.corp", name="Alt", active=False)
+    alt = await make_user(sub="s3", email="alt@example.corp", active=False)
 
     response = await client.put(
         f"/api/v1/admin/users/{alt.id}/admin", headers=auth_headers(*ADMIN, roles=NUR_EMPLOYEE)
@@ -157,8 +157,8 @@ async def test_unbekannter_empfaenger_404(client, app, auth_headers, make_user):
 
 
 async def test_mitarbeiter_darf_keine_rollen_vergeben(client, app, auth_headers, make_user):
-    await make_user(sub="s1", email="mia@example.corp", name="Mia Muster")
-    max_ = await make_user(sub="s2", email="max@example.corp", name="Max Beispiel")
+    await make_user(sub="s1", email="mia@example.corp")
+    max_ = await make_user(sub="s2", email="max@example.corp")
     headers = auth_headers("s1", "mia@example.corp", roles=NUR_EMPLOYEE)
 
     for methode in (client.put, client.delete):
@@ -230,8 +230,8 @@ async def test_deaktivierter_admin_bekommt_session_stale_statt_403(client, auth_
 async def test_me_liefert_wirksame_rollen(client, auth_headers, make_user):
     """Das Frontend blendet seine Admin-Navigation an /me auf; ein im Portal vergebenes
     Recht steht nicht im Cookie und bliebe ohne diesen Abgleich unsichtbar."""
-    await make_user(sub="s-db", email="db-admin@example.corp", name="Petra Admin", admin=True)
-    await make_user(sub="s-mia", email="mia@example.corp", name="Mia Muster")
+    await make_user(sub="s-db", email="db-admin@example.corp", admin=True)
+    await make_user(sub="s-mia", email="mia@example.corp")
     await make_user(sub="s-beides", email="beides@example.corp", admin=True)
 
     db_admin = await client.get(
@@ -254,7 +254,7 @@ async def test_me_liefert_wirksame_rollen(client, auth_headers, make_user):
 
 async def test_liste_zeigt_kennzeichen(client, auth_headers, make_user):
     await _handelnder_admin(make_user)
-    mia = await make_user(sub="s1", email="mia@example.corp", name="Mia Muster")
+    mia = await make_user(sub="s1", email="mia@example.corp")
     headers = auth_headers(*ADMIN, roles=NUR_EMPLOYEE)
 
     vorher = (await client.get("/api/v1/admin/users", headers=headers)).json()
@@ -358,3 +358,17 @@ async def test_ohne_konfigurierte_liste_passiert_nichts(make_app):
     settings = make_settings()
     app = make_app()
     assert await _anmelden(app, settings, "s-egal", "egal@example.corp") is False
+
+
+async def test_bootstrap_wird_auditiert(make_app):
+    """Die einzige Rechtevergabe ohne handelnden Menschen muss nachweisbar sein — sonst
+    fehlt sie im Berechtigungsreview genau für den ältesten Zugang der Instanz."""
+    settings = make_settings(admin_bootstrap_emails="chef@example.corp")
+    app = make_app(admin_bootstrap_emails="chef@example.corp")
+    assert await _anmelden(app, settings, "s-chef", "chef@example.corp") is True
+
+    async with app.state.sessionmaker() as session:
+        eintraege = list((await session.execute(select(AuditLog))).scalars())
+    assert [e.action for e in eintraege] == ["admin_bootstrap"]
+    assert eintraege[0].actor_email == "chef@example.corp"
+    assert eintraege[0].detail["grund"]
