@@ -52,8 +52,12 @@ WHERE user_id = (SELECT id FROM users WHERE email = 'betroffener@example.corp');
 -- Step 2: Empfängerhistorie anonymisieren (E-Mail entfernen). last_error MUSS mit:
 -- dort steht die Fehlerantwort des Mailservers, die die Adresse üblicherweise
 -- wiederholt ("550 ... <adresse> unknown") — sonst bleibt sie nach der Löschung stehen.
+-- Der Platzhalter MUSS die Zeilen-id enthalten: dispatch_recipients hat
+-- UNIQUE (dispatch_id, email), und bei einem Pflicht-Verteiler ist jeder Beschäftigte
+-- Empfänger DESSELBEN Versands. Ein konstanter Platzhalter kollidiert ab dem zweiten
+-- Löschantrag mit Fehler 1062 — die Anonymisierung findet dann nicht statt.
 UPDATE dispatch_recipients 
-SET email = 'deleted-user@anonymized.local', user_id = NULL, last_error = NULL
+SET email = CONCAT('deleted-', id, '@anonymized.local'), user_id = NULL, last_error = NULL
 WHERE email = 'betroffener@example.corp';
 
 -- Step 3a: Hat die Person je eine Meldung VERSENDET? dispatches.created_by_user_id

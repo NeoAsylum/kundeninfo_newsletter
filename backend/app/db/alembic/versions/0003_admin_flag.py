@@ -21,6 +21,7 @@ können danach in der Oberfläche gesetzt werden (RUNBOOK 6b).
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision = "0003"
 down_revision = "0002"
@@ -29,12 +30,22 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("is_admin", sa.Boolean(), nullable=False, server_default="0"),
-    )
-
     conn = op.get_bind()
+
+    # Wiederholbar halten: MariaDB kennt kein transaktionales DDL, ein ALTER TABLE ist
+    # also sofort committet — die Bestandsübernahme unten aber nicht. Bricht sie ab
+    # (Lock-Timeout, Verbindungsverlust), bleibt die Spalte stehen, während Alembic die
+    # Revision nicht stempelt. Ein zweiter Anlauf lief dann in „Duplicate column name"
+    # und der API-Container startete in einer Endlosschleife, die sich nur per
+    # Hand-SQL beheben lässt. Deshalb prüfen statt blind anlegen.
+    spalten = {s["name"] for s in inspect(conn).get_columns("users")}
+    if "is_admin" not in spalten:
+        op.add_column(
+            "users",
+            sa.Column("is_admin", sa.Boolean(), nullable=False, server_default="0"),
+        )
+
+    # Die folgenden UPDATEs sind von sich aus wiederholbar (sie setzen nur auf 1).
     # Wer einen Versand angelegt hat, war Admin — die Route hängt hinter require_admin.
     conn.execute(
         sa.text(
@@ -67,4 +78,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("users", "is_admin")
+    if "is_admin" in {s["name"] for s in inspect(op.get_bind()).get_columns("users")}:
+        op.drop_column("users", "is_admin")
