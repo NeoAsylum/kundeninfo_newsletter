@@ -40,8 +40,9 @@ from app.domain.topics import get_topic
 from app.mail.render import build_subject, render_mail
 
 # require_admin deckt beides ab: Es löst den DB-User auf (offboardet → 401 SESSION_STALE,
-# das Frontend erzwingt Re-Login) und prüft danach die Adminrechte gegen IdP-Rolle UND
-# users.is_admin (ADR-0022). Ein Cookie allein autorisiert nicht mehr.
+# das Frontend erzwingt Re-Login) und prüft danach das Adminrecht — allein aus
+# users.is_admin, je Anfrage aus der DB (ADR-0022). IdP-Rollen werden nicht gelesen;
+# ein Cookie allein autorisiert nicht.
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 

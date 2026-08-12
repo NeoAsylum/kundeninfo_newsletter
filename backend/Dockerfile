@@ -12,8 +12,11 @@ ENV APP_VERSION=${APP_VERSION} GIT_SHA=${GIT_SHA}
 RUN groupadd -r app && useradd -r -g app -m -d /home/app app
 
 WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# requirements.txt ist die menschenlesbare Quelle; requirements.lock wird per
+# pip-compile --generate-hashes daraus erzeugt (ADR-0026, RUNBOOK "Lockfile & SBOM").
+# --require-hashes installiert ausschließlich exakt gepinnte, verifizierte Artefakte.
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY alembic.ini ./
 COPY app ./app

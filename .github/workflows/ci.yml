@@ -37,7 +37,7 @@ jobs:
           docker compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml \
             --profile test up -d --wait mariadb-test
           cd backend && python -m pytest tests/unit tests/api -q \
-            --cov=app/domain --cov=app/mail
+            --cov=app/domain --cov=app/mail --cov=app/api --cov=app/core
 
   integration:
     # Voller Stack (Keycloak, Mailpit) — nur auf main, vor Releases (Plan 8.1)

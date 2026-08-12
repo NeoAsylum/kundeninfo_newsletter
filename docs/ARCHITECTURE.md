@@ -73,6 +73,8 @@ Gilt für das Zielbild im Konzern. Der öffentliche Pilot weicht ab, wo vermerkt
 | Backend | DB-Infra | 3306/TCP | MariaDB/MySQL (ab DB-Cutover) | `DATABASE_URL` | `mariadb` Container |
 | Backend | Exchange-Relay | 25 / 587/TCP | SMTP-Versand | `SMTP_HOST` / `SMTP_PORT` | `mailpit` Container |
 | Backend | Konzern-IdP | 443/TCP | OIDC-Discovery & JWKS | `OIDC_ISSUER_URL` | `keycloak` Container |
+| Backend | Konzern-DNS | 53/UDP+TCP | Namensauflösung (DB, IdP, Relay) | – | Docker-DNS |
+| Backend | Zeitserver (NTP) | 123/UDP | Systemzeit für TLS- und JWT-Prüfung (`exp`) | – | Host-Uhr |
 | VM (Build) | Docker Registry | 443/TCP | Base-Images (`nginx`, `python`) | `HTTPS_PROXY` | – |
 | VM (Build) | PyPI Mirror | 443/TCP | Python-Abhängigkeiten (`pip`) | `HTTPS_PROXY` | – |
 | VM (Pilot) | Let's Encrypt, Cloudflare-API | 443/TCP | Zertifikatsausstellung, IP-Bereichsliste | – | – |

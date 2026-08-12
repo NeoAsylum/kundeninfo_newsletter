@@ -14,9 +14,10 @@ vergeben will, findet keinen Ausgangspunkt. Wir übernehmen deshalb jeden, der
 belegbar bereits als Admin gehandelt hat: Ersteller von Versänden und Akteure im
 Audit-Log. Beides sind Aktionen, die nur hinter dem Admin-Gate möglich sind.
 
-Konten mit Adminrolle, die noch nie gehandelt haben (z. B. ein frischer
-Demo-Zugang), erfasst das nicht — sie bleiben über ihre IdP-Rolle Admin und
-können danach in der Oberfläche gesetzt werden (RUNBOOK 6b).
+Konten, die noch nie als Admin gehandelt haben (z. B. ein frischer Zugang),
+erfasst das nicht. Nach ADR-0022 gibt es keine IdP-Rolle mehr, die sie trüge; der
+Weg zurück ist die Demo-Endung @demo.invalid bzw. ADMIN_BOOTSTRAP_EMAILS, danach
+die Rollen-Oberfläche (RUNBOOK 6b).
 """
 
 import sqlalchemy as sa

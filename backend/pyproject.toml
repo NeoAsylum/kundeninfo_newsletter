@@ -24,7 +24,7 @@ module = "app.db.alembic.*"
 ignore_errors = true
 
 [tool.coverage.run]
-source = ["app/domain", "app/mail"]
+source = ["app/domain", "app/mail", "app/api", "app/core"]
 # Ohne greenlet misst das Gate asynchronen Code systematisch zu niedrig: SQLAlchemys
 # async-Schicht führt den eigentlichen DBAPI-Aufruf in einem Greenlet aus, und der
 # Tracer folgt dem Wechsel nicht — die Messung bricht in jeder Funktion nach dem
