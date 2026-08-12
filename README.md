@@ -16,17 +16,16 @@ HTTPS ausschließlich aus Cloudflare-Netzen an. Aufbau, Betrieb und Absicherung:
 
 ### Demo-Zugang
 
-| | |
-|---|---|
-| Benutzer | `plaaslinkadrian@gmail.com` |
-| Passwort | `Demo-Stoerungsinfo-2026` |
-| Rechte | Mitarbeiter **und** Admin (Abo-Maske, Versand, Empfänger-Verwaltung) |
+Zugangsdaten stehen **nicht** im öffentlichen Repository — sie werden auf Anfrage über
+einen privaten Kanal weitergegeben. Die Selbstregistrierung ist offen, ein Zugang lässt
+sich also auch selbst anlegen (Adress-Endung frei wählbar).
 
-> ⚠️ Dieses Repository ist öffentlich — die Zugangsdaten sind damit auffindbar. Bewusst
-> in Kauf genommen: Der Zugang kann echte Mails über das konfigurierte Postfach versenden
-> und alle Empfängeradressen einsehen, die Instanz läuft aber nur für Vorführungen (siehe
-> unten). Eingrenzung für Demophasen: `MAIL_REDIRECT_TO=<eigene@adresse>` in der `.env`
-> der VM — dann landen alle Mails ausschließlich dort.
+> ℹ️ Ein früher hier dokumentiertes Demo-Passwort steht noch in der Git-Historie, ist aber
+> **rotiert und damit wertlos**. Der Demo-Zugang hat Adminrechte (echte Mails über das
+> konfigurierte Postfach, Einsicht aller Empfängeradressen) — deshalb außerhalb von
+> Vorführungen den Stack gestoppt halten (`demo-mode.sh stop`) und für Demophasen mit
+> `MAIL_REDIRECT_TO=<eigene@adresse>` in der `.env` der VM alle Mails auf eine Adresse
+> umleiten.
 
 Zugang nach der Demo sperren (Abos und Historie bleiben erhalten), weitere anlegen:
 

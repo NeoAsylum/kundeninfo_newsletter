@@ -437,21 +437,23 @@ Drei Entscheidungen des Auftraggebers machen die Instanz leichter bedienbar und
 gleichzeitig angreifbar. Sie stehen hier zusammen, damit sie beim Schritt zu einem
 produktiven Betrieb nicht einzeln übersehen werden — **jede einzelne muss dann fallen:**
 
-1. **Registrierung offen** (`registrationAllowed: true`).
+1. **Registrierung offen** (`registrationAllowed: true`) — bewusst offen gehalten für
+   den Demo-Betrieb (Betreiber-Entscheidung, 2026-08-12).
 2. **Keine Mailbestätigung** (`verifyEmail: false`, ADR-0021) — eine Adresse muss
    niemandem gehören.
 3. **Adressen auf `@demo.invalid` erhalten beim Login automatisch Adminrechte**
    (`backend/app/domain/users.py`, `DEMO_ADMIN_SUFFIX`). Anders als
-   `ADMIN_BOOTSTRAP_EMAILS` ist das keine Notfallregel, sondern dauerhaft offen.
+   `ADMIN_BOOTSTRAP_EMAILS` ist das keine Notfallregel, sondern dauerhaft offen. Die
+   Demo-Admins `admin1`–`admin6@demo.invalid` teilen ein Passwort (privater Kanal).
 
 Zusammen ergeben sie einen Weg aus dem offenen Internet zu vollen Adminrechten:
 registrieren mit `irgendwas@demo.invalid`, keine Bestätigung nötig, anmelden — fertig.
-Ein Admin kann echte Mails über das konfigurierte Postfach an alle Abonnenten senden,
-alle Empfängeradressen einsehen, Verteiler löschen und weitere Admins ernennen.
 
-Für die Testmaschine ist das abgewogen und akzeptiert. Im Zielbild mit AD-Anbindung
-(offene Frage B1) entfallen Punkt 1 und 2 von selbst, weil die Konten aus dem
-Verzeichnisdienst kommen; Punkt 3 muss aktiv entfernt werden.
+Für die Testmaschine ist das abgewogen und akzeptiert. **Absicherung, die bleibt:** Das
+früher im README dokumentierte Demo-Passwort ist rotiert und aus dem öffentlichen Repo
+entfernt (der alte Wert in der Git-Historie ist wertlos); außerhalb von Vorführungen den
+Stack gestoppt halten (`demo-mode.sh stop`). Im Zielbild mit AD-Anbindung (offene Frage
+B1) entfallen Punkt 1 und 2 von selbst; Punkt 3 muss aktiv aus dem Code entfernt werden.
 
 ### Weg zurück, wenn ein Deploy schiefgeht
 
@@ -525,6 +527,38 @@ Versandweg, der mitgepflegt werden müsste.
   erneuert der Cron-Job `renew-cert.sh` unterhalb von 30 Tagen Restlaufzeit, und
   `demo-mode.sh start` prüft die Restlaufzeit zusätzlich bei jedem Start. Im Zielbild
   mit Konzern-PKI liegt die Überwachung beim Zertifikatsprozess des Konzerns.
+
+---
+
+## 5b. Lockfile & SBOM (Lieferkette, ADR-0026)
+
+`requirements.txt` ist die menschenlesbare Quelle. Nach **jeder** Änderung daran das
+Lockfile und die SBOM neu erzeugen — beides in `python:3.12-slim`, damit die aufgelösten
+Versionen zum Laufzeit-Image passen:
+
+```sh
+# 1. Gepinntes, gehashtes Lockfile aus requirements.txt (im Laufzeit-Image)
+docker run --rm -v "$PWD/backend:/w" -w /w python:3.12-slim sh -c '
+  pip install -q pip-tools &&
+  pip-compile --generate-hashes --strip-extras -o requirements.lock requirements.txt'
+
+# 2. SBOM (CycloneDX 1.6) der Laufzeit-Closure, je Komponente mit Lizenz
+docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c '
+  python -m venv /venv && /venv/bin/pip install -q -r backend/requirements.lock &&
+  pip install -q cyclonedx-bom &&
+  cyclonedx-py environment /venv/bin/python --of JSON -o docs/governance/stoerungsinfo-app.cdx.json'
+```
+
+Danach in `docs/governance/stoerungsinfo-app.cdx.json` die Wurzelkomponente (`metadata.component`)
+auf den aktuellen Git-Stand setzen. Der Container-Build zieht das Lockfile automatisch
+(`--require-hashes`, Dockerfile).
+
+**Voll-Image-Stückliste** (inkl. OS-Pakete des Base-Image, nicht nur Python): auf dem
+gebauten Image mit dem vorhandenen Trivy-Werkzeug (`make scan`):
+
+```sh
+trivy image --format cyclonedx --output docs/governance/stoerungsinfo-image.cdx.json stoerungsinfo-api:local
+```
 
 ---
 
