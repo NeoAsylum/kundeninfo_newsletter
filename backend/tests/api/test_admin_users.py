@@ -230,7 +230,7 @@ async def test_abo_auf_deaktiviertem_topic_aufraeumbar(client, app, auth_headers
     _, mia, _, _ = await _setup(app, make_user)
     headers = auth_headers(*ADMIN)
     async with app.state.sessionmaker() as session:
-        await session.execute(text("UPDATE topics SET is_active = 0 WHERE id = 'kap'"))
+        await session.execute(text("UPDATE topics SET is_active = false WHERE id = 'kap'"))
         await session.commit()
     try:
         listed = (await client.get("/api/v1/admin/users?query=mia", headers=headers)).json()
@@ -245,5 +245,5 @@ async def test_abo_auf_deaktiviertem_topic_aufraeumbar(client, app, auth_headers
         assert "kap" not in relisted["items"][0]["subscribed_topic_ids"]
     finally:
         async with app.state.sessionmaker() as session:
-            await session.execute(text("UPDATE topics SET is_active = 1 WHERE id = 'kap'"))
+            await session.execute(text("UPDATE topics SET is_active = true WHERE id = 'kap'"))
             await session.commit()

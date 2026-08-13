@@ -204,7 +204,8 @@ async def test_betreff_ueberlauf_422_statt_500(client, app, auth_headers, make_u
         await session.execute(
             text(
                 "INSERT INTO topics (id, name, is_mandatory, is_active) "
-                "VALUES ('langname', :name, 0, 1) ON DUPLICATE KEY UPDATE name = :name"
+                "VALUES ('langname', :name, false, true) "
+                "ON CONFLICT (id) DO UPDATE SET name = :name"
             ),
             {"name": "L" * 120},
         )

@@ -5,7 +5,7 @@ Löst die RUNBOOK-SQL-Prozedur als Regelweg ab (ADR-0024, löst ADR-0016 ab).
 Bewusste Grenzen, alle aus dem Datenmodell begründet:
 - **Der Slug ist nicht änderbar.** `topics.id` ist Primärschlüssel, und `subscriptions`
   wie `dispatches` verweisen ohne ON UPDATE darauf — ein Slug-Wechsel wäre ein
-  PK-Update, das MariaDB bei jeder Referenz ablehnt.
+  PK-Update, das PostgreSQL bei jeder Referenz ablehnt.
 - **Löschen nur ohne Versandhistorie.** `dispatches.topic_id` hat ON DELETE RESTRICT,
   Versände werden nie gelöscht. Mit Historie bleibt die Deaktivierung.
 - **Umbenennen nur ohne laufenden Versand** (siehe domain.topics.guard_rename).

@@ -22,7 +22,6 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -107,7 +106,7 @@ class Dispatch(Base):
     topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id", ondelete="RESTRICT"))
     severity: Mapped[Severity] = mapped_column(_enum(Severity, "severity_enum"))
     subject: Mapped[str] = mapped_column(String(255))  # final inkl. Präfix, wie versendet
-    body: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT, "mysql", "mariadb"))
+    body: Mapped[str] = mapped_column(Text)  # PostgreSQL: unbegrenzt
     status: Mapped[DispatchStatus] = mapped_column(
         _enum(DispatchStatus, "dispatch_status_enum"), default=DispatchStatus.pending
     )

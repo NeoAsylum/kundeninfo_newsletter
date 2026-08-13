@@ -4,14 +4,14 @@
 
 Das Self-Service-Portal „Störungsinfos“ ersetzt manuelle Outlook-E-Mail-Verteiler durch eine datenbankgestützte Plattform. Mitarbeiter verwalten ihre Benachrichtigungsabonnements per Konzern-SSO selbst. Das zentrale Problemmanagement versendet Störungs- und Entwarnungsmeldungen über ein Web-Portal mit Live-Vorschau.
 
-Die Anwendung selbst besteht aus zwei Containern: **NGINX** (TLS, statisches Frontend, Reverse Proxy) und **FastAPI** (REST, BFF/OIDC, Outbox-Worker). Alle Konzern-Systeme — IdP, SMTP-Relay, Datenbank — sind konfigurierbare Endpunkte. Wie viele Container tatsächlich laufen, hängt davon ab, welche dieser Endpunkte mitgeliefert werden: im Zielbild keine (nur NGINX + API), im DEV-Stack und im öffentlichen Pilot dagegen MariaDB, Keycloak und ein Mailserver als Container.
+Die Anwendung selbst besteht aus zwei Containern: **NGINX** (TLS, statisches Frontend, Reverse Proxy) und **FastAPI** (REST, BFF/OIDC, Outbox-Worker). Alle Konzern-Systeme — IdP, SMTP-Relay, Datenbank — sind konfigurierbare Endpunkte. Wie viele Container tatsächlich laufen, hängt davon ab, welche dieser Endpunkte mitgeliefert werden: im Zielbild keine (nur NGINX + API), im DEV-Stack und im öffentlichen Pilot dagegen PostgreSQL, Keycloak und ein Mailserver als Container.
 
 ```mermaid
 flowchart LR
   subgraph DEV["DEV – docker compose auf Entwickler-Host"]
     B1["Browser"] -->|"HTTP :8080"| N1["NGINX<br/>statisches FE + Proxy"]
     N1 -->|"intern :8000"| A1["FastAPI-Backend<br/>REST, BFF/OIDC, Outbox-Worker"]
-    A1 -->|"SQL :3306"| DB1[("MariaDB-Container<br/>compose.db.yaml")]
+    A1 -->|"SQL :5432"| DB1[("PostgreSQL-Container<br/>compose.db.yaml")]
     A1 -->|"SMTP :1025"| MP["Mailpit<br/>Mock-Outlook"]
     B1 -.->|"Login via localhost:8081"| KC["Keycloak :8081<br/>Mock-IdP"]
     A1 -.->|"Token/JWKS intern"| KC
@@ -20,15 +20,15 @@ flowchart LR
   subgraph PILOT["Öffentlicher Pilot – Linux-VM, compose.public.yaml"]
     CF["Cloudflare-Proxy"] -->|"HTTPS :443<br/>nur aus CF-Netzen"| N3["NGINX<br/>Let's-Encrypt-TLS"]
     N3 -->|"intern :8000"| A3["FastAPI-Backend"]
-    N3 -->|"Allowlist /idp"| KC3["Keycloak<br/>eigene DB im MariaDB-Container"]
-    A3 --> DB3[("MariaDB-Container<br/>newsletter + keycloak")]
+    N3 -->|"Allowlist /idp"| KC3["Keycloak<br/>eigene DB im PostgreSQL-Container"]
+    A3 --> DB3[("PostgreSQL-Container<br/>newsletter + keycloak")]
     A3 -->|"SMTP :587 STARTTLS"| GM["Gmail-Relay<br/>App-Passwort"]
   end
 
   subgraph PROD["Zielbild Konzern – Linux-VM, compose.prod.yaml"]
     B2["Browser (Intranet)"] -->|"HTTPS :443"| N2["NGINX<br/>Konzern-Zertifikat"]
     N2 -->|"intern :8000"| A2["FastAPI-Backend"]
-    A2 -->|"SQL :3306"| XDB[("Externe DB-Infra<br/>MariaDB/MySQL")]
+    A2 -->|"SQL :5432"| XDB[("Externe DB-Infra<br/>PostgreSQL")]
     B2 -.->|"SSO-Redirect"| IDP["Konzern-IdP<br/>Entra ID / Keycloak"]
     A2 -->|"SMTP :25/587"| XR["Exchange-Relay<br/>interner SMTP-Host"]
     A2 -.->|"JWKS :443"| IDP
@@ -44,8 +44,8 @@ Eine Codebasis, fünf Overlays — welche kombiniert werden, steuert das `Makefi
 | Datei | Inhalt | Zweck |
 |---|---|---|
 | `compose.yaml` | `nginx`, `api`, internes Netzwerk `appnet`, Healthchecks | Basis-Definition |
-| `compose.db.yaml` | `mariadb` mit persistentem Volume `db_data` | DEV und PROD vor dem DB-Cutover |
-| `compose.dev.yaml` | `keycloak` (Realm-Import), `mailpit`, `mariadb-test` (tmpfs) | DEV-Mocks & Test-Services |
+| `compose.db.yaml` | `postgres` (eigenes Image mit Init-Skript) + persistentes Volume `db_data` | DEV und PROD vor dem DB-Cutover |
+| `compose.dev.yaml` | `keycloak` (Realm-Import), `mailpit`, `postgres-test` (tmpfs) | DEV-Mocks & Test-Services |
 | `compose.prod.yaml` | Resource-Limits, Log-Rotation, Restart-Policy, TLS-Mounts aus der Konzern-PKI, `PUBLIC_HOST` für den Serverblock | Zielbild Konzern |
 | `compose.public.yaml` | Öffentlicher Pilot: Let's-Encrypt-Zertbot, Keycloak unter `/idp`, engere Speicherlimits | Demo-Instanz im Internet |
 
@@ -70,7 +70,7 @@ Gilt für das Zielbild im Konzern. Der öffentliche Pilot weicht ab, wo vermerkt
 
 | Quelle | Ziel | Port/Protokoll | Zweck | Konfig-Variable | DEV-Ersatz |
 |---|---|---|---|---|---|
-| Backend | DB-Infra | 3306/TCP | MariaDB/MySQL (ab DB-Cutover) | `DATABASE_URL` | `mariadb` Container |
+| Backend | DB-Infra | 5432/TCP | PostgreSQL (ab DB-Cutover) | `DATABASE_URL` | `postgres` Container |
 | Backend | Exchange-Relay | 25 / 587/TCP | SMTP-Versand | `SMTP_HOST` / `SMTP_PORT` | `mailpit` Container |
 | Backend | Konzern-IdP | 443/TCP | OIDC-Discovery & JWKS | `OIDC_ISSUER_URL` | `keycloak` Container |
 | Backend | Konzern-DNS | 53/UDP+TCP | Namensauflösung (DB, IdP, Relay) | – | Docker-DNS |

@@ -55,14 +55,16 @@ WHERE user_id = (SELECT id FROM users WHERE email = 'betroffener@example.corp');
 -- Der Platzhalter MUSS die Zeilen-id enthalten: dispatch_recipients hat
 -- UNIQUE (dispatch_id, email), und bei einem Pflicht-Verteiler ist jeder Beschäftigte
 -- Empfänger DESSELBEN Versands. Ein konstanter Platzhalter kollidiert ab dem zweiten
--- Löschantrag mit Fehler 1062 — die Anonymisierung findet dann nicht statt.
+-- Löschantrag mit einem Unique-Verstoß (PostgreSQL: unique_violation, SQLSTATE 23505) —
+-- die Anonymisierung findet dann nicht statt.
 UPDATE dispatch_recipients 
 SET email = CONCAT('deleted-', id, '@anonymized.local'), user_id = NULL, last_error = NULL
 WHERE email = 'betroffener@example.corp';
 
 -- Step 3a: Hat die Person je eine Meldung VERSENDET? dispatches.created_by_user_id
 -- ist ein Fremdschlüssel mit ON DELETE RESTRICT (die Versandhistorie ist
--- unveränderlich) — bei einem Zähler > 0 scheitert Step 3b mit MariaDB-Fehler 1451.
+-- unveränderlich) — bei einem Zähler > 0 scheitert Step 3b mit einem Fremdschlüssel-
+-- Verstoß (PostgreSQL: foreign_key_violation, SQLSTATE 23503).
 SELECT COUNT(*) FROM dispatches d JOIN users u ON u.id = d.created_by_user_id
 WHERE u.email = 'betroffener@example.corp';
 

@@ -1,13 +1,21 @@
+import asyncio
 import pathlib
 import sys
 
 import pytest
 
+# psycopg3 (async) läuft unter Windows nicht mit dem Default-ProactorEventLoop — nur der
+# SelectorEventLoop unterstützt die nötigen Socket-Reader. Betrifft NUR die lokale
+# Testausführung auf Windows; im Linux-Container/CI ein No-op. Die Anwendung selbst läuft
+# ausschließlich im Container.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.core.config import Settings  # noqa: E402
 
-TEST_DB_URL_DEFAULT = "mysql+aiomysql://root:test@localhost:3307/newsletter_test"
+TEST_DB_URL_DEFAULT = "postgresql+psycopg://postgres:test@localhost:3307/newsletter_test"
 
 
 def make_settings(**overrides) -> Settings:

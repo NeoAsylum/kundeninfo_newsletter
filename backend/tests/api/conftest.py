@@ -1,4 +1,4 @@
-"""API-Tests: FastAPI in-process (httpx ASGITransport) gegen MariaDB-tmpfs (ADR-015).
+"""API-Tests: FastAPI in-process (httpx ASGITransport) gegen PostgreSQL-tmpfs (ADR-015).
 
 Auth läuft über ECHTE Session-Cookies (Fernet mit Test-Secret) — kein
 Dependency-Override, die Tests decken damit auch die Cookie-Mechanik ab.
@@ -32,9 +32,7 @@ def api_settings():
 def migrated_db(api_settings):
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_DIR / "app" / "db" / "alembic"))
-    cfg.set_main_option(
-        "sqlalchemy.url", api_settings.database_url.replace("+aiomysql", "+pymysql")
-    )
+    cfg.set_main_option("sqlalchemy.url", api_settings.database_url)
     command.upgrade(cfg, "head")
 
 
@@ -62,10 +60,11 @@ async def app(make_app):
 @pytest.fixture(autouse=True)
 async def clean_db(app):
     async with app.state.sessionmaker() as session:
-        await session.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        # CLEAN_TABLES ist FK-sicher sortiert (Kinder vor Eltern) — deshalb reicht ein
+        # einfaches DELETE ohne Constraint-Abschaltung (PostgreSQL kennt kein
+        # FOREIGN_KEY_CHECKS).
         for table in CLEAN_TABLES:
             await session.execute(text(f"DELETE FROM {table}"))
-        await session.execute(text("SET FOREIGN_KEY_CHECKS=1"))
         await session.commit()
     yield
 

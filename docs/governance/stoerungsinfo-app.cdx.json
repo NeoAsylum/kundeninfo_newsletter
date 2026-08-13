@@ -174,45 +174,6 @@
       "version": "3.0.3"
     },
     {
-      "bom-ref": "PyMySQL==1.2.0",
-      "description": "Pure Python MySQL Driver",
-      "externalReferences": [
-        {
-          "comment": "from packaging metadata Project-URL: Documentation",
-          "type": "documentation",
-          "url": "https://pymysql.readthedocs.io/"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: Project",
-          "type": "other",
-          "url": "https://github.com/PyMySQL/PyMySQL"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: Changelog",
-          "type": "release-notes",
-          "url": "https://github.com/PyMySQL/PyMySQL/blob/main/CHANGELOG.md"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "acknowledgement": "declared",
-            "id": "MIT"
-          }
-        }
-      ],
-      "name": "PyMySQL",
-      "properties": [
-        {
-          "name": "cdx:python:package:required-extra",
-          "value": "rsa"
-        }
-      ],
-      "purl": "pkg:pypi/pymysql@1.2.0",
-      "type": "library",
-      "version": "1.2.0"
-    },
-    {
       "bom-ref": "PyYAML==6.0.3",
       "description": "YAML parser and emitter for Python",
       "externalReferences": [
@@ -297,64 +258,6 @@
       "purl": "pkg:pypi/sqlalchemy@2.0.52",
       "type": "library",
       "version": "2.0.52"
-    },
-    {
-      "bom-ref": "aiomysql==0.3.2",
-      "description": "MySQL driver for asyncio.",
-      "externalReferences": [
-        {
-          "comment": "from packaging metadata Project-URL: download",
-          "type": "distribution",
-          "url": "https://pypi.python.org/pypi/aiomysql"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: documentation",
-          "type": "documentation",
-          "url": "https://aiomysql.readthedocs.io/"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: issues",
-          "type": "issue-tracker",
-          "url": "https://github.com/aio-libs/aiomysql/issues"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: source",
-          "type": "other",
-          "url": "https://github.com/aio-libs/aiomysql"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: GitHub: CI",
-          "type": "other",
-          "url": "https://github.com/aio-libs/aiomysql/actions"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: GitHub: discussions",
-          "type": "other",
-          "url": "https://github.com/aio-libs/aiomysql/discussions"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: changelog",
-          "type": "release-notes",
-          "url": "https://github.com/aio-libs/aiomysql/blob/main/CHANGES.txt"
-        },
-        {
-          "comment": "from packaging metadata Project-URL: homepage",
-          "type": "website",
-          "url": "https://github.com/aio-libs/aiomysql"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "acknowledgement": "declared",
-            "id": "MIT"
-          }
-        }
-      ],
-      "name": "aiomysql",
-      "purl": "pkg:pypi/aiomysql@0.3.2",
-      "type": "library",
-      "version": "0.3.2"
     },
     {
       "bom-ref": "aiosmtplib==5.1.2",
@@ -1041,6 +944,108 @@
       ]
     },
     {
+      "bom-ref": "psycopg==3.3.4",
+      "description": "PostgreSQL database adapter for Python",
+      "externalReferences": [
+        {
+          "comment": "from packaging metadata Project-URL: Documentation",
+          "type": "documentation",
+          "url": "https://psycopg.org/psycopg3/docs/"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Issue Tracker",
+          "type": "issue-tracker",
+          "url": "https://github.com/psycopg/psycopg/issues"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Code",
+          "type": "other",
+          "url": "https://github.com/psycopg/psycopg"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Funding",
+          "type": "other",
+          "url": "https://github.com/sponsors/dvarrazzo"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Changes",
+          "type": "release-notes",
+          "url": "https://psycopg.org/psycopg3/docs/news.html"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Homepage",
+          "type": "website",
+          "url": "https://psycopg.org/"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "acknowledgement": "declared",
+            "id": "LGPL-3.0-only"
+          }
+        }
+      ],
+      "name": "psycopg",
+      "properties": [
+        {
+          "name": "cdx:python:package:required-extra",
+          "value": "binary"
+        }
+      ],
+      "purl": "pkg:pypi/psycopg@3.3.4",
+      "type": "library",
+      "version": "3.3.4"
+    },
+    {
+      "bom-ref": "psycopg-binary==3.3.4",
+      "description": "PostgreSQL database adapter for Python -- C optimisation distribution",
+      "externalReferences": [
+        {
+          "comment": "from packaging metadata Project-URL: Documentation",
+          "type": "documentation",
+          "url": "https://psycopg.org/psycopg3/docs/"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Issue Tracker",
+          "type": "issue-tracker",
+          "url": "https://github.com/psycopg/psycopg/issues"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Code",
+          "type": "other",
+          "url": "https://github.com/psycopg/psycopg"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Funding",
+          "type": "other",
+          "url": "https://github.com/sponsors/dvarrazzo"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Changes",
+          "type": "release-notes",
+          "url": "https://psycopg.org/psycopg3/docs/news.html"
+        },
+        {
+          "comment": "from packaging metadata Project-URL: Homepage",
+          "type": "website",
+          "url": "https://psycopg.org/"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "acknowledgement": "declared",
+            "id": "LGPL-3.0-only"
+          }
+        }
+      ],
+      "name": "psycopg-binary",
+      "purl": "pkg:pypi/psycopg-binary@3.3.4",
+      "type": "library",
+      "version": "3.3.4"
+    },
+    {
       "bom-ref": "pycparser==3.0",
       "description": "C parser in Python",
       "externalReferences": [
@@ -1254,7 +1259,7 @@
       "version": "1.6.0"
     },
     {
-      "bom-ref": "typing-inspection==0.4.3",
+      "bom-ref": "typing-inspection==0.4.4",
       "description": "Runtime typing introspection tools",
       "externalReferences": [
         {
@@ -1287,9 +1292,9 @@
         }
       ],
       "name": "typing-inspection",
-      "purl": "pkg:pypi/typing-inspection@0.4.3",
+      "purl": "pkg:pypi/typing-inspection@0.4.4",
       "type": "library",
-      "version": "0.4.3"
+      "version": "0.4.4"
     },
     {
       "bom-ref": "typing_extensions==4.16.0",
@@ -1340,7 +1345,7 @@
       "version": "4.16.0"
     },
     {
-      "bom-ref": "uvicorn==0.52.1",
+      "bom-ref": "uvicorn==0.52.3",
       "description": "The lightning-fast ASGI server.",
       "externalReferences": [
         {
@@ -1379,9 +1384,9 @@
           "value": "standard"
         }
       ],
-      "purl": "pkg:pypi/uvicorn@0.52.1",
+      "purl": "pkg:pypi/uvicorn@0.52.3",
       "type": "library",
-      "version": "0.52.1"
+      "version": "0.52.3"
     },
     {
       "bom-ref": "uvloop==0.22.1",
@@ -1528,29 +1533,15 @@
       "ref": "MarkupSafe==3.0.3"
     },
     {
-      "dependsOn": [
-        "cryptography==50.0.0"
-      ],
-      "ref": "PyMySQL==1.2.0"
-    },
-    {
       "ref": "PyYAML==6.0.3"
     },
     {
       "dependsOn": [
-        "PyMySQL==1.2.0",
-        "aiomysql==0.3.2",
         "greenlet==3.5.5",
+        "psycopg==3.3.4",
         "typing_extensions==4.16.0"
       ],
       "ref": "SQLAlchemy==2.0.52"
-    },
-    {
-      "dependsOn": [
-        "PyMySQL==1.2.0",
-        "SQLAlchemy==2.0.52"
-      ],
-      "ref": "aiomysql==0.3.2"
     },
     {
       "dependsOn": [
@@ -1607,9 +1598,9 @@
         "pydantic-settings==2.15.0",
         "pydantic==2.13.4",
         "starlette==1.6.0",
-        "typing-inspection==0.4.3",
+        "typing-inspection==0.4.4",
         "typing_extensions==4.16.0",
-        "uvicorn==0.52.1"
+        "uvicorn==0.52.3"
       ],
       "ref": "fastapi==0.141.1"
     },
@@ -1653,6 +1644,17 @@
       "ref": "pip==25.0.1"
     },
     {
+      "ref": "psycopg-binary==3.3.4"
+    },
+    {
+      "dependsOn": [
+        "anyio==4.14.2",
+        "psycopg-binary==3.3.4",
+        "typing_extensions==4.16.0"
+      ],
+      "ref": "psycopg==3.3.4"
+    },
+    {
       "ref": "pycparser==3.0"
     },
     {
@@ -1660,7 +1662,7 @@
         "PyYAML==6.0.3",
         "pydantic==2.13.4",
         "python-dotenv==1.2.2",
-        "typing-inspection==0.4.3"
+        "typing-inspection==0.4.4"
       ],
       "ref": "pydantic-settings==2.15.0"
     },
@@ -1668,7 +1670,7 @@
       "dependsOn": [
         "annotated-types==0.8.0",
         "pydantic_core==2.46.4",
-        "typing-inspection==0.4.3",
+        "typing-inspection==0.4.4",
         "typing_extensions==4.16.0"
       ],
       "ref": "pydantic==2.13.4"
@@ -1699,7 +1701,7 @@
       "dependsOn": [
         "typing_extensions==4.16.0"
       ],
-      "ref": "typing-inspection==0.4.3"
+      "ref": "typing-inspection==0.4.4"
     },
     {
       "ref": "typing_extensions==4.16.0"
@@ -1716,7 +1718,7 @@
         "watchfiles==1.2.0",
         "websockets==17.0.1"
       ],
-      "ref": "uvicorn==0.52.1"
+      "ref": "uvicorn==0.52.3"
     },
     {
       "ref": "uvloop==0.22.1"
@@ -1732,7 +1734,7 @@
     }
   ],
   "metadata": {
-    "timestamp": "2026-08-12T10:29:06.856873+00:00",
+    "timestamp": "2026-08-13T17:43:02.297518+00:00",
     "tools": {
       "components": [
         {
@@ -1831,15 +1833,15 @@
           ],
           "name": "cyclonedx-python-lib",
           "type": "library",
-          "version": "11.11.1"
+          "version": "11.12.0"
         }
       ]
     },
     "component": {
       "type": "application",
-      "bom-ref": "stoerungsinfo-portal@9b92271",
+      "bom-ref": "stoerungsinfo-portal@7044922",
       "name": "stoerungsinfo-portal",
-      "version": "0.1.0-pilot+9b92271",
+      "version": "0.1.0-pilot+7044922",
       "description": "Self-Service-Portal fuer Stoerungsmeldungen (Abo-Verwaltung + E-Mail-Versand)",
       "supplier": {
         "name": "IT-Problemmanagement (WWI)"
@@ -1855,7 +1857,7 @@
       }
     ]
   },
-  "serialNumber": "urn:uuid:2818fb69-6dd8-50d6-9de8-cd952d9d9aca",
+  "serialNumber": "urn:uuid:ee134a55-5560-56d0-b4ed-f13ed01b60a5",
   "version": 1,
   "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",

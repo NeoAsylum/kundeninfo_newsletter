@@ -241,7 +241,7 @@ async def test_meldung_eines_deaktivierten_verteilers_bleibt_sichtbar(
     await _versand(app, autor.id, dispatch_id=1, topic_id="kap")
     headers = auth_headers(*MITARBEITER)
     async with app.state.sessionmaker() as session:
-        await session.execute(text("UPDATE topics SET is_active = 0 WHERE id = 'kap'"))
+        await session.execute(text("UPDATE topics SET is_active = false WHERE id = 'kap'"))
         await session.commit()
     try:
         data = await _historie(client, headers)
@@ -254,7 +254,7 @@ async def test_meldung_eines_deaktivierten_verteilers_bleibt_sichtbar(
     finally:
         # topics überlebt clean_db bewusst (Seed aus Migration 0002) — selbst zurücksetzen
         async with app.state.sessionmaker() as session:
-            await session.execute(text("UPDATE topics SET is_active = 1 WHERE id = 'kap'"))
+            await session.execute(text("UPDATE topics SET is_active = true WHERE id = 'kap'"))
             await session.commit()
 
 

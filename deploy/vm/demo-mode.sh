@@ -64,7 +64,7 @@ case "$ACTION" in
         echo "=== Stack stoppen (Daten bleiben erhalten)"
         # Vor dem Abschalten sichern: Der Backup-Cron kann bei gestopptem Stack
         # nichts tun, sonst fehlt bei einer längeren Pause jede Sicherung.
-        if $COMPOSE ps --status running --quiet mariadb 2>/dev/null | grep -q .; then
+        if $COMPOSE ps --status running --quiet postgres 2>/dev/null | grep -q .; then
             bash "$REPO_DIR/ops/backup.sh" 2>&1 | tail -2 || \
                 echo "    WARNUNG: Sicherung fehlgeschlagen" >&2
         fi

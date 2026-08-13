@@ -5,7 +5,7 @@
 #
 # Unterschiede zu compose.prod.yaml:
 #  * Keycloak läuft mit (es gibt keinen Konzern-IdP) — unter /idp hinter NGINX,
-#    mit MariaDB als Speicher statt der Dev-H2-Datei.
+#    mit PostgreSQL als Speicher (eigene DB `keycloak`) statt der Dev-H2-Datei.
 #  * TLS-Zertifikate kommen von Let's Encrypt (certbot-Volume) statt Konzern-PKI.
 #  * Speicherlimits sind auf 1,8 GB RAM ausgelegt (Summe ~1,6 GB + Swap).
 # Kein Mailpit: es wird echt versendet (SMTP_* in der .env).
@@ -97,16 +97,17 @@ services:
       AUDIT_SUBSCRIPTIONS: ${AUDIT_SUBSCRIPTIONS:-false}
     logging: *logrotate
 
-  mariadb:
-    # Kleine VM: Buffer-Pool begrenzen, sonst nimmt InnoDB zu viel.
-    # max-connections niedrig halten — jede Verbindung kostet Thread-Stack und
-    # Puffer; ein api-Prozess plus Keycloak-Pool brauchen keine 60.
-    command: >
-      --innodb-buffer-pool-size=96M
-      --max-connections=30
-      --performance-schema=OFF
-      --tmp-table-size=16M
-      --max-heap-table-size=16M
+  postgres:
+    # Kleine VM: shared_buffers begrenzen, max_connections niedrig — ein api-Prozess
+    # plus Keycloak-Pool brauchen keine 100.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - max_connections=30
+      - -c
+      - effective_cache_size=192MB
     mem_limit: 288m
     logging: *logrotate
 
@@ -115,15 +116,15 @@ services:
       context: .
       dockerfile: deploy/keycloak/Dockerfile
     image: stoerungsinfo-keycloak:public
-    # Produktionsmodus: HTTP nur intern (NGINX terminiert TLS), Speicher in MariaDB.
+    # Produktionsmodus: HTTP nur intern (NGINX terminiert TLS), Speicher in PostgreSQL.
     # Ohne --optimized: Keycloak baut den DB-Provider beim Start selbst (~20 s mehr),
     # dafür bleibt dasselbe Image in DEV mit start-dev nutzbar.
     command: ["start", "--import-realm"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:?KEYCLOAK_ADMIN fehlt}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD fehlt}
-      KC_DB: mariadb
-      KC_DB_URL: jdbc:mariadb://mariadb:3306/keycloak
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       # Eigenes Konto, nicht das der Anwendung: Eine Lücke im api-Container soll
       # nicht bis an Keycloaks Passwort-Hashes reichen (deploy/vm/deploy.sh legt
       # den Benutzer an und entzieht dem App-Konto die Rechte auf 'keycloak').
@@ -145,7 +146,7 @@ services:
     mem_limit: 640m
     networks: [appnet]
     depends_on:
-      mariadb:
+      postgres:
         condition: service_healthy
     healthcheck:
       # Keycloak >= 25: /health/ready liegt auf Management-Port 9000; das Image

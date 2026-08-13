@@ -14,9 +14,9 @@ target_metadata = Base.metadata
 
 
 def _sync_url() -> str:
-    """DATABASE_URL (async, aiomysql) → synchroner Treiber für Alembic."""
-    url = config.get_main_option("sqlalchemy.url") or os.environ["DATABASE_URL"]
-    return url.replace("+aiomysql", "+pymysql")
+    """DATABASE_URL für Alembic. psycopg3 läuft synchron wie asynchron unter demselben
+    Dialektnamen (postgresql+psycopg) — kein Treiber-Tausch nötig."""
+    return config.get_main_option("sqlalchemy.url") or os.environ["DATABASE_URL"]
 
 
 def run_migrations_offline() -> None:

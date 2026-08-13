@@ -53,12 +53,12 @@ switch ($Target) {
         try { python -m pytest tests/unit -q } finally { Pop-Location }
     }
     "test-db" {
-        docker compose @DevFiles --profile test up -d --wait mariadb-test; Fail-IfError
+        docker compose @DevFiles --profile test up -d --wait postgres-test; Fail-IfError
         Push-Location backend
         try { python -m pytest tests/api -q } finally { Pop-Location }
     }
     "test-db-down" {
-        docker compose @DevFiles --profile test rm -sf mariadb-test
+        docker compose @DevFiles --profile test rm -sf postgres-test
     }
     "test-integration" {
         docker compose @DevFiles up -d --build --wait; Fail-IfError

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Erst auf die DB warten (reiner Ping), DANN Migrationen genau einmal ausführen:
-# Ein echter Migrationsfehler darf nicht als "DB nicht bereit" 10x gegen ein halb
-# migriertes Schema wiederholt werden (DDL ist in MariaDB nicht transaktional).
+# Ein echter Migrationsfehler darf nicht als "DB nicht bereit" 10x wiederholt werden.
+# PostgreSQL rollt eine fehlgeschlagene Migration zwar transaktional zurück, aber die
+# Warteschleife soll den Fehler trotzdem sichtbar machen statt ihn zu verschlucken.
 set -e
 
 i=0

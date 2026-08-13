@@ -32,10 +32,10 @@ jobs:
       - name: .env für Compose anlegen
         run: cp .env.example .env
 
-      - name: API-Tests gegen MariaDB-tmpfs (inkl. Coverage-Gate 80 %)
+      - name: API-Tests gegen PostgreSQL-tmpfs (inkl. Coverage-Gate 80 %)
         run: |
           docker compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml \
-            --profile test up -d --wait mariadb-test
+            --profile test up -d --wait postgres-test
           cd backend && python -m pytest tests/unit tests/api -q \
             --cov=app/domain --cov=app/mail --cov=app/api --cov=app/core
 

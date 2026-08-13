@@ -53,10 +53,15 @@ def upgrade() -> None:
         conn.execute(
             sa.text(
                 "INSERT INTO topics (id, name, description, is_mandatory, is_active) "
-                "VALUES (:id, :name, :description, :mandatory, 1) "
-                "ON DUPLICATE KEY UPDATE id = id"
+                "VALUES (:id, :name, :description, :mandatory, true) "
+                "ON CONFLICT (id) DO NOTHING"
             ),
-            {"id": topic_id, "name": name, "description": description, "mandatory": mandatory},
+            {
+                "id": topic_id,
+                "name": name,
+                "description": description,
+                "mandatory": bool(mandatory),
+            },
         )
 
 

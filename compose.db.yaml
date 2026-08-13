@@ -1,30 +1,36 @@
-# DB-Overlay: lokaler MariaDB-Container mit persistentem Volume.
+# DB-Overlay: lokaler PostgreSQL-Container mit persistentem Volume.
 # DEV: immer. PROD: bis zum Cutover auf die externe Konzern-DB (Plan 3.1/9.4) —
 # danach entfällt dieses Overlay (make prod statt make prod-localdb).
 services:
-  mariadb:
-    # mariadb:11, per Digest gepinnt (Plan 9.7)
-    image: mariadb:11@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf
+  postgres:
+    # Eigenes Image: postgres:16-alpine + Init-Skript (App-Rolle ohne Superuser,
+    # optional Keycloak-DB). Gebacken statt Bind-Mount (R10).
+    build:
+      context: ./deploy/postgres
+    image: stoerungsinfo-postgres:${IMAGE_TAG:-local}
     environment:
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD fehlt in .env}
-      MARIADB_DATABASE: ${DB_NAME:-newsletter}
-      MARIADB_USER: ${DB_USER:-app}
-      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
+      POSTGRES_DB: ${DB_NAME:-newsletter}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD fehlt in .env}
+      # Vom Init-Skript ausgewertet (App-Rolle + optional Keycloak-DB):
+      APP_DB_USER: ${DB_USER:-app}
+      APP_DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-}
     volumes:
-      - db_data:/var/lib/mysql
+      - db_data:/var/lib/postgresql/data
     networks: [appnet]
     restart: unless-stopped
     # Bewusst KEIN Host-Port-Mapping: DB ist nur im Compose-Netz erreichbar.
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${DB_NAME:-newsletter}"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 20s
 
   api:
     depends_on:
-      mariadb:
+      postgres:
         condition: service_healthy
 
 volumes:

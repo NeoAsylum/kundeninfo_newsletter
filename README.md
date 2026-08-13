@@ -9,7 +9,7 @@ Das Portal **Störungsinfos** ersetzt manuelle Outlook-E-Mail-Verteiler des zent
 **https://kunden-stoerungs-info.com**
 
 Öffentlich erreichbarer Pilotbetrieb auf einer eigenen Linux-VM: NGINX mit
-Let’s-Encrypt-Zertifikat, FastAPI-Backend, MariaDB, Keycloak als IdP unter `/idp`,
+Let’s-Encrypt-Zertifikat, FastAPI-Backend, PostgreSQL, Keycloak als IdP unter `/idp`,
 echter Mailversand. Vor dem Origin steht Cloudflare (Proxy-Modus); die Server-IP nimmt
 HTTPS ausschließlich aus Cloudflare-Netzen an. Aufbau, Betrieb und Absicherung:
 [docs/RUNBOOK.md](docs/RUNBOOK.md), Abschnitt 3c.
@@ -67,7 +67,7 @@ cd kundeninfo_newsletter
 # 2. Konfigurationsdatei anlegen
 cp .env.example .env
 
-# 3. DEV-Stack bauen & starten (NGINX, FastAPI, MariaDB, Keycloak, Mailpit)
+# 3. DEV-Stack bauen & starten (NGINX, FastAPI, PostgreSQL, Keycloak, Mailpit)
 make dev
 ```
 
@@ -130,7 +130,7 @@ Das ist zugleich der Ausweg, falls sich niemand mehr anmelden kann, der Rechte v
 Die Datei [**.env.example**](.env.example) ist die **einzige Konfigurations-Wahrheit** des Projekts. Sie ist vollständig kommentiert.
 
 Wichtige Parameter:
-* `DATABASE_URL`: Umschalter zwischen lokaler Docker-DB (`mariadb:3306`) und externer Konzern-DB.
+* `DATABASE_URL`: Umschalter zwischen lokaler Docker-DB (`postgres:5432`) und externer Konzern-DB.
 * `OIDC_ISSUER_URL`: Issuer-URL für Entra ID / Keycloak.
 * `SMTP_HOST` / `SMTP_PORT`: E-Mail-Relay Endpunkt.
 * `AUDIT_SUBSCRIPTIONS`: Schalter für Verhaltensdaten-Protokollierung (`false` im MVP).

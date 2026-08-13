@@ -17,7 +17,7 @@ apt-get upgrade -y -qq
 log "Basiswerkzeuge"
 apt-get install -y -qq ca-certificates curl git ufw fail2ban unattended-upgrades dnsutils
 
-# --- Swap: 1,8 GB RAM sind für Keycloak + MariaDB + API knapp bemessen ---------
+# --- Swap: 1,8 GB RAM sind für Keycloak + PostgreSQL + API knapp bemessen ------
 if ! swapon --show | grep -q '/swapfile'; then
     log "2 GB Swap anlegen"
     fallocate -l 2G /swapfile

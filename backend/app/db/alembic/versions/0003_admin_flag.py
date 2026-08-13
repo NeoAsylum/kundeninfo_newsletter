@@ -33,24 +33,23 @@ depends_on = None
 def upgrade() -> None:
     conn = op.get_bind()
 
-    # Wiederholbar halten: MariaDB kennt kein transaktionales DDL, ein ALTER TABLE ist
-    # also sofort committet — die Bestandsübernahme unten aber nicht. Bricht sie ab
-    # (Lock-Timeout, Verbindungsverlust), bleibt die Spalte stehen, während Alembic die
-    # Revision nicht stempelt. Ein zweiter Anlauf lief dann in „Duplicate column name"
-    # und der API-Container startete in einer Endlosschleife, die sich nur per
-    # Hand-SQL beheben lässt. Deshalb prüfen statt blind anlegen.
+    # PostgreSQL hat transaktionales DDL: add_column und die Bestandsübernahme unten
+    # laufen in EINER Transaktion. Bricht etwas ab, rollt alles zurück und Alembic
+    # stempelt die Revision nicht — der „Spalte da, Revision nicht"-Zwischenzustand aus
+    # der MariaDB-Zeit kann nicht mehr entstehen. Die Existenzprüfung bleibt als
+    # harmloser Gürtel-und-Hosenträger.
     spalten = {s["name"] for s in inspect(conn).get_columns("users")}
     if "is_admin" not in spalten:
         op.add_column(
             "users",
-            sa.Column("is_admin", sa.Boolean(), nullable=False, server_default="0"),
+            sa.Column("is_admin", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         )
 
-    # Die folgenden UPDATEs sind von sich aus wiederholbar (sie setzen nur auf 1).
+    # Die folgenden UPDATEs sind von sich aus wiederholbar (sie setzen nur auf true).
     # Wer einen Versand angelegt hat, war Admin — die Route hängt hinter require_admin.
     conn.execute(
         sa.text(
-            "UPDATE users SET is_admin = 1 WHERE id IN "
+            "UPDATE users SET is_admin = true WHERE id IN "
             "(SELECT DISTINCT created_by_user_id FROM dispatches)"
         )
     )
@@ -75,7 +74,7 @@ def upgrade() -> None:
     # hebelt diesen Schutz rueckwirkend aus.
     conn.execute(
         sa.text(
-            "UPDATE users u SET u.is_admin = 1 WHERE EXISTS ("
+            "UPDATE users u SET is_admin = true WHERE EXISTS ("
             "  SELECT 1 FROM audit_log a"
             "  WHERE a.actor_email = u.email"
             "    AND a.ts >= u.created_at"

@@ -5,7 +5,7 @@ Die API ist die Sicherheitsgrenze — das UI sperrt Pflicht-Toggles nur zusätzl
 
 from fastapi import APIRouter, Response
 from sqlalchemy import delete
-from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.deps import CurrentUserDep, SessionDep, SettingsDep
 from app.db.models import AuditLog, Subscription
@@ -27,9 +27,9 @@ async def subscribe(
     topic = await get_topic(session, topic_id)
     guard_mandatory(topic)
     stmt = (
-        mysql_insert(Subscription)
+        pg_insert(Subscription)
         .values(user_id=user.id, topic_id=topic.id)
-        .on_duplicate_key_update(user_id=Subscription.user_id)  # idempotent
+        .on_conflict_do_nothing(index_elements=["user_id", "topic_id"])  # idempotent
     )
     await session.execute(stmt)
     await _audit(session, settings, user.email, "subscribe", topic.id)

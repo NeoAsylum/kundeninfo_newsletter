@@ -51,7 +51,7 @@ DB_ROOT_PASSWORD=$(secret)
 # Eigenes Konto für Keycloak — die Anwendung bekommt keinen Zugriff auf dessen
 # Datenbank und umgekehrt (Passwort-Hashes aller Konten liegen dort).
 KC_DB_PASSWORD=$(secret)
-DATABASE_URL=mysql+aiomysql://app:__DB_PASSWORD__@mariadb:3306/newsletter
+DATABASE_URL=postgresql+psycopg://app:__DB_PASSWORD__@postgres:5432/newsletter
 
 OIDC_ISSUER_URL=https://${PUBLIC_HOST}/idp/realms/dev
 # Nur Origin (Schema://Host:Port) OHNE Pfad: Der Pfad /idp steckt bereits in der
@@ -131,9 +131,10 @@ else
         echo "ADMIN_BOOTSTRAP_EMAILS=\"${ADMIN_BOOTSTRAP_EMAILS:-${ACME_EMAIL}}\"" >> .env
         echo "    ADMIN_BOOTSTRAP_EMAILS ergaenzt"
     fi
-    # MUSS vor dem ersten Compose-Aufruf stehen: compose.public.yaml verlangt die
-    # Variable mit :? und wertet das schon beim Parsen aus, also auch bei
-    # `up -d mariadb`. Eine Erzeugung weiter unten käme zu spät.
+    # MUSS vor dem ersten Compose-Aufruf stehen: compose.db.yaml reicht die Variable
+    # an den Postgres-Container weiter, dessen Init-Skript daraus beim ERSTEN Start
+    # die keycloak-DB anlegt. Fehlt sie beim ersten `up -d postgres`, entsteht die
+    # keycloak-DB nie (das Init-Skript läuft nur auf leerem Datenverzeichnis).
     if ! grep -q '^KC_DB_PASSWORD=' .env; then
         echo "KC_DB_PASSWORD=$(secret)" >> .env
         echo "    KC_DB_PASSWORD erzeugt (eigenes DB-Konto fuer Keycloak)"
@@ -152,31 +153,23 @@ else
 fi
 set -a; . ./.env; set +a
 
-# --- 2. Keycloak-Datenbank ----------------------------------------------------
-log "Stack starten (MariaDB zuerst)"
-$COMPOSE up -d --build mariadb
+# --- 2. Datenbank -------------------------------------------------------------
+log "Stack starten (PostgreSQL zuerst)"
+$COMPOSE up -d --build postgres
 for i in $(seq 1 30); do
-    if docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml exec -T \
-        mariadb mariadb -u root -p"$DB_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; then
+    if $COMPOSE exec -T postgres pg_isready -U postgres -d newsletter >/dev/null 2>&1; then
         break
     fi
     sleep 3
 done
-# Eigener Benutzer für Keycloak statt des Anwendungskontos: Sonst reicht eine
-# Lücke im internetseitigen api-Container bis in Keycloaks credential-Tabelle
-# (Passwort-Hashes aller Konten). Die beiden Datenbanken haben nichts miteinander
-# zu tun — der Anwendungsbenutzer braucht keinen Zugriff auf 'keycloak' und
-# umgekehrt.
-docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml exec -T mariadb \
-    mariadb -u root -p"$DB_ROOT_PASSWORD" -e "
-        CREATE DATABASE IF NOT EXISTS keycloak
-            CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-        CREATE USER IF NOT EXISTS 'keycloak'@'%' IDENTIFIED BY '${KC_DB_PASSWORD}';
-        ALTER USER 'keycloak'@'%' IDENTIFIED BY '${KC_DB_PASSWORD}';
-        GRANT ALL ON keycloak.* TO 'keycloak'@'%';
-        REVOKE ALL PRIVILEGES ON keycloak.* FROM '${DB_USER}'@'%';
-        FLUSH PRIVILEGES;"
-echo "    Datenbank 'keycloak' bereit (eigener Benutzer, App-Konto hat keinen Zugriff)"
+# App-Rolle (Eigentümerin von 'newsletter', kein Superuser) und — getrennt davon —
+# die keycloak-Rolle samt eigener DB legt das Init-Skript des Postgres-Images beim
+# ERSTEN Start an (deploy/postgres/initdb/10-init.sh, gespeist aus APP_DB_*/
+# KC_DB_PASSWORD). Damit reicht eine Lücke im internetseitigen api-Container nicht
+# bis an Keycloaks Passwort-Hashes: Die beiden Datenbanken haben nichts miteinander
+# zu tun. Auf einem bereits initialisierten Volume läuft das Skript nicht erneut —
+# die Rollen bestehen dann schon (idempotenter Re-Deploy).
+echo "    PostgreSQL bereit (App- und keycloak-Rolle vom Init-Skript getrennt angelegt)"
 
 log "Sicherung vor dem Ausrollen"
 # Migrationen laufen beim Start des api-Containers automatisch. Vorher ein Dump,
@@ -186,10 +179,12 @@ log "Sicherung vor dem Ausrollen"
 # Demo-Betrieb lässt den Stack ausserhalb von Vorführungen bewusst gestoppt
 # (demo-mode.sh stop); die Prüfung auf einen laufenden api-Container hätte genau
 # dann "Erstinstallation" gemeldet und die Sicherung übersprungen, obwohl in
-# db_data echte Konten, Abos und Versandhistorie liegen. mariadb läuft hier schon.
-BESTAND="$($COMPOSE exec -T mariadb sh -c \
-    'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" -N -B \
-     -e "SELECT COUNT(*) FROM newsletter.users"' 2>/dev/null | tr -d '\r' || echo 0)"
+# db_data echte Konten, Abos und Versandhistorie liegen. postgres läuft hier schon.
+# Vor der ersten Migration existiert 'users' noch nicht — der Fehler wird geschluckt
+# und als 0 gewertet (echte Erstinstallation).
+BESTAND="$($COMPOSE exec -T postgres \
+    psql -U postgres -d newsletter -tAc "SELECT COUNT(*) FROM users" \
+    2>/dev/null | tr -d '\r' || echo 0)"
 case "$BESTAND" in '' | *[!0-9]*) BESTAND=0 ;; esac
 
 if [ "$BESTAND" -gt 0 ]; then
@@ -263,9 +258,9 @@ bash "$(dirname "$0")/configure-realm.sh"
 # Ausrollen niemand übrig, ist das Portal ohne Fehlermeldung unbedienbar — deshalb
 # hier ausdrücklich zählen und im Zweifel die Bootstrap-Adresse nennen.
 log "Adminrechte"
-ADMINS="$($COMPOSE exec -T mariadb sh -c \
-    'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" -N -B \
-     -e "SELECT email FROM newsletter.users WHERE is_admin = 1 AND is_active = 1"' \
+ADMINS="$($COMPOSE exec -T postgres \
+    psql -U postgres -d newsletter -tAc \
+     "SELECT email FROM users WHERE is_admin AND is_active" \
     2>/dev/null | tr -d '\r' || true)"
 if [ -n "$ADMINS" ]; then
     echo "$ADMINS" | sed 's/^/    /'

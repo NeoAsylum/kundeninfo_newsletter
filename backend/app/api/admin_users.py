@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserDep, SessionDep, require_admin
@@ -133,8 +133,8 @@ async def admin_subscribe(
     topic = await get_topic(session, topic_id)
     guard_mandatory(topic)
     # Audit nur bei echter Änderung — Entscheidung per Vorab-SELECT statt rowcount:
-    # ON DUPLICATE liefert unter dem FOUND_ROWS-Flag des Dialekts auch bei No-Ops 1.
-    # Das Schreiben selbst bleibt idempotent (kein Race auf den Unique-Key).
+    # ON CONFLICT DO NOTHING meldet einen übersprungenen Insert nicht verlässlich als
+    # 0 Zeilen. Das Schreiben selbst bleibt idempotent (kein Race auf den Unique-Key).
     already_subscribed = (
         await session.execute(
             select(Subscription).where(
@@ -143,9 +143,9 @@ async def admin_subscribe(
         )
     ).scalar_one_or_none() is not None
     stmt = (
-        mysql_insert(Subscription)
+        pg_insert(Subscription)
         .values(user_id=user.id, topic_id=topic.id)
-        .on_duplicate_key_update(user_id=Subscription.user_id)  # idempotent
+        .on_conflict_do_nothing(index_elements=["user_id", "topic_id"])  # idempotent
     )
     await session.execute(stmt)
     if not already_subscribed:

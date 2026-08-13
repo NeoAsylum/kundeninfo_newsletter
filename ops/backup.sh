@@ -16,7 +16,7 @@ RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 # die Konzern-VM compose.prod.yaml.
 if [ -f "$REPO_DIR/compose.public.yaml" ] && \
    docker compose -f "$REPO_DIR/compose.yaml" -f "$REPO_DIR/compose.db.yaml" \
-       -f "$REPO_DIR/compose.public.yaml" ps --quiet mariadb 2>/dev/null | grep -q .; then
+       -f "$REPO_DIR/compose.public.yaml" ps --quiet postgres 2>/dev/null | grep -q .; then
     OVERLAY="$REPO_DIR/compose.public.yaml"
 else
     OVERLAY="$REPO_DIR/compose.prod.yaml"
@@ -31,19 +31,25 @@ chmod 700 "$BACKUP_DIR"
 STAMP="$(date +%Y-%m-%d_%H%M)"
 TARGET="$BACKUP_DIR/stoerungsinfo_$STAMP.sql.gz"
 
-# Datenbankliste: keycloak nur, wenn vorhanden (Konzern-VM nutzt den echten IdP)
+# Rollen und die leeren Datenbanken legt das Init-Skript des Postgres-Images beim
+# ersten Start an (deploy/postgres/initdb/10-init.sh) — der Dump sichert deshalb NUR
+# Schema und Daten je Datenbank, keine Rollen und kein CREATE DATABASE. Zwei Vorteile:
+# kein Passwort-Material im Dump, und der Restore spielt sauber in die frisch
+# angelegten, leeren Datenbanken ein (RUNBOOK 3). Das vorangestellte \connect schaltet
+# beim Einspielen jeweils auf die richtige Datenbank.
 DBS="${DB_NAME:-newsletter}"
-if $COMPOSE exec -T mariadb sh -c \
-    "mariadb -u root -p\"\$MARIADB_ROOT_PASSWORD\" -e 'USE keycloak'" >/dev/null 2>&1; then
+# keycloak nur sichern, wenn die DB existiert (die Konzern-VM nutzt den echten IdP)
+if $COMPOSE exec -T postgres psql -U postgres -tAc \
+    "SELECT 1 FROM pg_database WHERE datname = 'keycloak'" 2>/dev/null | grep -q 1; then
     DBS="$DBS keycloak"
 fi
 echo "Sichere Datenbanken: $DBS"
-
-# --single-transaction: konsistenter InnoDB-Snapshot ohne Tabellen-Locks
-$COMPOSE exec -T mariadb sh -c \
-    "mariadb-dump --single-transaction --routines --events -u root \
-     -p\"\$MARIADB_ROOT_PASSWORD\" --databases $DBS" \
-    | gzip > "$TARGET"
+{
+    for db in $DBS; do
+        printf '\\connect %s\n' "$db"
+        $COMPOSE exec -T postgres pg_dump -U postgres "$db"
+    done
+} | gzip > "$TARGET"
 
 # Dumps enthalten personenbezogene Klartextdaten und Passwort-Hashes
 chmod 600 "$TARGET"

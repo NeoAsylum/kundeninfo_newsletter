@@ -17,7 +17,7 @@ help: ## Targets anzeigen
 install: ## Lokale Dev-Abhängigkeiten (pytest, ruff, ...)
 	pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 
-dev: ## DEV-Stack starten (nginx, api, mariadb, keycloak, mailpit)
+dev: ## DEV-Stack starten (nginx, api, postgres, keycloak, mailpit)
 	$(COMPOSE_DEV) up -d --build --wait
 
 dev-down: ## DEV-Stack stoppen (Volumes bleiben)
@@ -47,12 +47,12 @@ format: ## Autoformat + Autofix
 test: ## Unit-Tests: ohne Docker/DB/Netz, < 30 s (Plan 8.1)
 	cd backend && python -m pytest tests/unit -q
 
-test-db: ## API-Tests gegen MariaDB-tmpfs (startet mariadb-test)
-	$(COMPOSE_DEV) --profile test up -d --wait mariadb-test
+test-db: ## API-Tests gegen PostgreSQL-tmpfs (startet postgres-test)
+	$(COMPOSE_DEV) --profile test up -d --wait postgres-test
 	cd backend && python -m pytest tests/api -q
 
 test-db-down: ## Test-DB stoppen
-	$(COMPOSE_DEV) --profile test rm -sf mariadb-test
+	$(COMPOSE_DEV) --profile test rm -sf postgres-test
 
 test-integration: ## Integrationstests gegen den echten Compose-Stack (inkl. Mailpit)
 	$(COMPOSE_DEV) up -d --build --wait

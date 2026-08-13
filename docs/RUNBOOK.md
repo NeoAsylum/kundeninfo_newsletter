@@ -35,7 +35,7 @@ Dieses Dokument richtet sich an Entwickler und Systemadministratoren zur Durchf�
 Sobald die zentrale Datenbank-Infrastruktur freigeschaltet ist:
 
 1. **Versand pausieren / Wartungsfenster ankündigen**.
-2. **Finalen mysqldump ziehen**:
+2. **Finalen Dump ziehen** (`pg_dumpall`, siehe Abschnitt 3):
    ```bash
    ./ops/backup.sh
    ```
@@ -60,13 +60,24 @@ Sobald die zentrale Datenbank-Infrastruktur freigeschaltet ist:
   `/var/backups/stoerungsinfo/stoerungsinfo_<datum>_<zeit>.sql.gz` ab (Rechte `600`, weil
   er personenbezogene Klartextdaten und Passwort-Hashes enthält). Gesichert werden
   `newsletter` und — falls vorhanden — `keycloak`. Als Cron einrichten: siehe Abschnitt 3c.
-* **Restore**: Der Dump entsteht mit `--databases` und bringt `CREATE DATABASE`/`USE` mit,
-  wird also ohne Datenbanknamen eingespielt — und als `root`, damit auch `keycloak`
-  zurückkommt:
+* **Restore**: Der Dump enthält Schema und Daten je Datenbank (mit vorangestelltem
+  `\connect`), aber **keine Rollen und kein `CREATE DATABASE`** — die legt das Init-Skript
+  des Images beim ersten Start des frischen Clusters an. Also erst `db_data` leeren, den
+  Postgres-Container hochfahren (Init-Skript erzeugt Rollen + leere DBs `newsletter`/
+  `keycloak`) und dann als Superuser einspielen:
   ```bash
+  cd /opt/stoerungsinfo
+  P="docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml"
+  $P down
+  docker volume rm stoerungsinfo_db_data
+  $P up -d --wait postgres                       # Init-Skript: Rollen + leere DBs
   gunzip -c /var/backups/stoerungsinfo/stoerungsinfo_<datum>_<zeit>.sql.gz | \
-    docker compose exec -T mariadb sh -c 'mariadb -u root -p"$MARIADB_ROOT_PASSWORD"'
+    $P exec -T postgres psql -U postgres -d postgres -v ON_ERROR_STOP=0
+  $P up -d --wait                                # restliche Container starten
   ```
+  Der Restore muss **vor** dem ersten `api`-Start laufen: Die Migration käme sonst dem
+  Dump zuvor und die Tabellen existierten bereits. Nach dem Restore steht die
+  Alembic-Version aus dem Dump — der Migrations-Schritt beim `api`-Start ist dann ein No-op.
 
 ---
 
@@ -239,11 +250,11 @@ gesetzt sind.
 |---|---|
 | **TLS** | NGINX terminiert; Zertifikat im Volume `certbot_conf`. Der TLS-Serverblock wird erst aktiv, wenn ein Zertifikat existiert (`entrypoint-public.sh`) — sonst könnte NGINX nicht starten und die ACME-Prüfung nie beantworten. |
 | **Erneuerung** | `deploy/vm/renew-cert.sh` per Cron: erneuert und **lädt NGINX neu**. Ohne den Reload würde NGINX das neue Zertifikat nicht verwenden und der Dienst nach 90 Tagen ausfallen. |
-| **Keycloak** | Produktionsmodus, Speicher in MariaDB (Datenbank `keycloak`), erreichbar unter `/idp`. Adminkonsole und `/idp/metrics` sind per NGINX mit 404 blockiert. |
+| **Keycloak** | Produktionsmodus, Speicher in PostgreSQL (Datenbank `keycloak`), erreichbar unter `/idp`. Adminkonsole und `/idp/metrics` sind per NGINX mit 404 blockiert. |
 | **Adminkonsole** | Nur über SSH-Tunnel: `ssh -L 8081:localhost:8081 root@<host>`, dann `http://localhost:8081/idp/`. Zugangsdaten: `KEYCLOAK_ADMIN*` in der `.env`. |
 | **Secrets** | Alle in `/opt/stoerungsinfo/.env` (`chmod 600`), beim ersten Deploy per `openssl rand` erzeugt. Keine Dev-Werte, nichts aus dem Repo. |
 | **Registrierung** | Offen und **ohne** Bestätigungsmail (Entscheidung des Auftraggebers, ADR-0021) — eine Adresse muss also niemandem gehören. Brute-Force-Schutz ist an. Abschalten: `registrationAllowed` per Keycloak-Adminkonsole oder `configure-realm.sh`. |
-| **Speicher** | Limits: nginx 96 MB, api 320 MB, mariadb 288 MB, keycloak 640 MB, certbot 128 MB. Im Betrieb ~1,1 GB belegt, Swap als Puffer. |
+| **Speicher** | Limits: nginx 96 MB, api 320 MB, postgres 288 MB, keycloak 640 MB, certbot 128 MB. Im Betrieb ~1,1 GB belegt, Swap als Puffer. |
 | **Reboot** | `restart: unless-stopped` + aktivierter Docker-Dienst — der Stack kommt selbstständig wieder. |
 
 ### Prüfen, ob alles läuft
@@ -482,13 +493,13 @@ kaputt.
   als Cron einrichten und eine Kopie außerhalb der VM ablegen:
   `0 2 * * * /opt/stoerungsinfo/ops/backup.sh >> /var/log/stoerungsinfo-backup.log 2>&1`
 * **`.env` existiert nur auf der VM.** Geht sie verloren, passen die generierten
-  Passwörter nicht mehr zu den Daten in den Volumes (MariaDB übernimmt ein neues
-  Passwort nur bei leerem Datenverzeichnis). Verschlüsselte Kopie anlegen.
+  Passwörter nicht mehr zu den Daten in den Volumes (das Init-Skript vergibt die
+  DB-Passwörter nur bei leerem Datenverzeichnis). Verschlüsselte Kopie anlegen.
 * **Offene Selbstregistrierung** ist eine bewusste Entscheidung. Wer sich registriert,
   wird Empfänger der Pflicht-Verteiler. Abschalten über die Keycloak-Adminkonsole
   (SSH-Tunnel) oder `registrationAllowed: False` in `configure-realm.sh`.
 * **Images werden auf der VM gebaut.** Während des Builds konkurriert `pip install` mit
-  MariaDB und Keycloak um 1,8 GB RAM. Bei Problemen den Stack vor dem Build stoppen
+  PostgreSQL und Keycloak um 1,8 GB RAM. Bei Problemen den Stack vor dem Build stoppen
   oder Images in CI bauen (ADR-0008).
 * **Kein Monitoring.** `/readyz` wird von niemandem abgefragt — im Demo-Betrieb mit
   gestopptem Stack wäre ein Uptime-Check ohnehin ein Dauerfehlalarm. Für einen echten
