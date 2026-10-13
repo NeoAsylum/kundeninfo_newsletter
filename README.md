@@ -31,7 +31,7 @@ Zugang nach der Demo sperren (Abos und Historie bleiben erhalten), weitere anleg
 
 ```bash
 ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --disable'
-ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail> --name "Vor Nach"'
+ssh root@<vm> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail>'
 ```
 
 ### Betrieb nur bei Bedarf
@@ -55,7 +55,11 @@ Zug. Cloudflare meldet bei gestopptem Stack **521**, das ist erwartet.
 
 ### Voraussetzungen
 * Docker Engine & Docker Compose (V2)
-* Python 3.12+ und `make` (auf Windows: PowerShell Wrapper `.\make.ps1 <target>`)
+* Python 3.13 oder 3.14 (Image und CI laufen auf 3.14) und `make` (auf Windows: PowerShell Wrapper `.\make.ps1 <target>`); für
+  Lint und Tests einmalig `make install`
+* Für `make check`: Node.js 22+ und Edge oder Chrome — die Frontend-Tests laufen im
+  Browser ([ADR-0029](docs/adr/0029-frontend-verhaltenstests-mit-playwright.md)); einmalig
+  `make install-frontend`
 
 ### 1. Repository klonen & Dev-Stack starten
 
@@ -93,11 +97,14 @@ Sobald der Command erfolgreich beendet ist, laufen alle 5 Docker-Container im En
 ### Anmelden am Portal
 
 **Selbstregistrierung:** Auf der Anmeldeseite führt ein „Registrieren“-Link direkt zum
-Keycloak-Formular (E-Mail dient als Benutzername). Neue Nutzer sind nach der Registrierung
+Keycloak-Formular. Es fragt nur E-Mail und Passwort ab
+([ADR-0028](docs/adr/0028-nur-email-und-passwort.md)). Neue Nutzer sind nach der Registrierung
 angemeldet, werden automatisch als Empfänger angelegt und erhalten Pflicht-Verteiler
-sofort — Rolle `employee`, keine Adminrechte ([ADR-0021](docs/adr/0021-selbstregistrierung-im-idp.md)).
-Ist Realm-SMTP konfiguriert, verlangt Keycloak eine Bestätigungsmail; Ein-/Ausschalten und
-SMTP setzen: `python ops/configure_dev_realm.py [--verify-email] [--no-registration]`.
+sofort — Rolle `employee` ([ADR-0021](docs/adr/0021-selbstregistrierung-im-idp.md)). Adminrechte
+entstehen dabei nicht, mit einer Ausnahme für Vorführungen: Adressen auf `@demo.invalid` werden
+beim Login Admin (Demo-Regel, [RUNBOOK 3c](docs/RUNBOOK.md)). Eine Bestätigungsmail verlangt
+Keycloak nur mit `--verify-email` (braucht SMTP in der `.env`); Ein-/Ausschalten und SMTP
+setzen: `python ops/configure_dev_realm.py [--verify-email] [--no-registration]`.
 
 **Vorhandene DEV-Testuser** (Realm `dev`, Passwort jeweils **`test`**):
 
@@ -107,7 +114,7 @@ SMTP setzen: `python ops/configure_dev_realm.py [--verify-email] [--no-registrat
 Diese Adressen existieren nicht — beim Versand über einen echten SMTP-Server erzeugen sie
 Unzustellbarkeitsberichte (siehe [RUNBOOK 3b](docs/RUNBOOK.md)).
 
-**Eigenen Account anlegen** (z. B. mit echter Adresse und Adminrechten), reproduzierbar nach
+**Eigenen Account anlegen** (z. B. mit echter Adresse), reproduzierbar nach
 jedem Container-Neuaufbau:
 
 ```bash
@@ -130,25 +137,53 @@ Das ist zugleich der Ausweg, falls sich niemand mehr anmelden kann, der Rechte v
 Die Datei [**.env.example**](.env.example) ist die **einzige Konfigurations-Wahrheit** des Projekts. Sie ist vollständig kommentiert.
 
 Wichtige Parameter:
-* `DATABASE_URL`: Umschalter zwischen lokaler Docker-DB (`postgres:5432`) und externer Konzern-DB.
+* `DATABASE_URL`: Verbindung zur Datenbank — in jeder Umgebung der PostgreSQL-Container `postgres:5432` im Compose-Netz, auch in PROD ([ADR-0030](docs/adr/0030-postgresql-im-container-auch-in-prod.md)).
 * `OIDC_ISSUER_URL`: Issuer-URL für Entra ID / Keycloak.
 * `SMTP_HOST` / `SMTP_PORT`: E-Mail-Relay Endpunkt.
 * `AUDIT_SUBSCRIPTIONS`: Schalter für Verhaltensdaten-Protokollierung (`false` im MVP).
 
 ---
 
-## 🛠️ Wichtige Makefile-Befehle
+## 🛠️ Prozesse: wie man sie anstößt und wo das Ergebnis liegt
 
-| Command | Zweck |
+Alle Befehle laufen aus dem Wurzelverzeichnis des Repos; unter Windows `.\make.ps1 <target>`
+statt `make <target>`. Was ein Target genau ausführt, steht im [`Makefile`](Makefile).
+
+### Prüfen und Testen
+
+| Prozess | Anstoßen | Was geprüft wird, wo das Ergebnis steht | Einzelheiten |
+|---|---|---|---|
+| **Alles vor dem Abschluss einer Änderung** | `make check` | Lint, Unit-, Frontend- und API-Tests nacheinander; Ergebnis in der Konsole. Die CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) fährt dieselben Schritte bei jedem Push auf `main` und jedem Pull Request, dazu das Abdeckungs-Gate (80 %) und das Konfig-Gate; auf `main` zusätzlich die Integrationstests | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Lint und Typprüfung | `make lint` | ruff und mypy über `backend/` und `ops/governance.py` (Regeln: `backend/pyproject.toml`) | |
+| Unit-Tests | `make test` | `backend/tests/unit` — ohne Docker, Datenbank und Netz | |
+| API-Tests | `make test-db` | `backend/tests/api` gegen eine Wegwerf-PostgreSQL, die das Target selbst startet (`make test-db-down` stoppt sie) | |
+| Frontend-Verhaltenstests | `make test-frontend` | `frontend/tests/*.spec.js` im echten Browser, ohne Server; einmalig `make install-frontend` | [frontend/tests/README.md](frontend/tests/README.md), [ADR-0029](docs/adr/0029-frontend-verhaltenstests-mit-playwright.md) |
+| Integrationstests | `make test-integration` | `backend/tests/integration` gegen den ganzen DEV-Stack: Anmeldung über Keycloak, Versand bis zur Mail in Mailpit. Bricht ab, solange die `.env` auf einen echten Mailserver zeigt | [RUNBOOK](docs/RUNBOOK.md) 3b |
+| Konfiguration vollständig dokumentiert? | `python backend/scripts/check_env_example.py` | jedes Settings-Feld steht in `.env.example` | |
+| Mailserver erreichbar? | `python backend/scripts/check_smtp.py` | Verbindung und Anmeldung am SMTP-Server der `.env` — ohne eine Mail zu senden | [RUNBOOK](docs/RUNBOOK.md) 3b |
+| Smoke-Test nach einem Deployment | `make smoke BASE_URL=https://…` | Erreichbarkeit der ausgerollten Instanz, ohne Login und ohne Versand | [RUNBOOK](docs/RUNBOOK.md) 1 |
+
+### Lieferkette und Compliance
+
+| Prozess | Anstoßen | Ergebnis | Einzelheiten |
+|---|---|---|---|
+| Abhängigkeiten festschreiben | `pip-compile` im Basis-Image (Schritt 1 in RUNBOOK 5b) | `backend/requirements.lock` — jede Version mit Prüfsumme; der Image-Bau installiert nur daraus | [RUNBOOK](docs/RUNBOOK.md) 5b, [ADR-0026](docs/adr/0026-lieferkette-lockfile-sbom.md) |
+| **Stücklisten (SBOM) erzeugen** | `make governance` | `docs/governance/stoerungsinfo-app.cdx.json` und je Image `stoerungsinfo-image-<name>.cdx.json` (CycloneDX); lesbar mit Komponenten, Urhebern und Lizenzen: [`KOMPONENTEN.md`](docs/governance/KOMPONENTEN.md) | [docs/governance/](docs/governance/README.md) |
+| **Schwachstellenanalyse** | `make governance` (derselbe Lauf) | Bericht mit Bewertung der Lücken CRITICAL, HIGH und ohne Einstufung: [`SCHWACHSTELLEN.md`](docs/governance/SCHWACHSTELLEN.md); alle Funde: `docs/governance/schwachstellen.json` | [RUNBOOK](docs/RUNBOOK.md) 5b |
+| Bewertung einer Lücke eintragen | `docs/governance/schwachstellen-bewertung.toml` ändern, dann `python ops/governance.py bericht` | `SCHWACHSTELLEN.md` neu geschrieben, ohne neuen Scan | Kopf der TOML-Datei |
+| Scan als Release-Gate | `make scan` | bricht ab, sobald ein Image einen Fund HIGH oder CRITICAL hat; braucht ein lokal installiertes `trivy` und kennt die Bewertungen nicht | Frage B10 im [Register](docs/open-questions.md) |
+
+`make governance` braucht Docker und Netz (gut 1 GB Download) und ist nach jeder Änderung an
+Abhängigkeiten oder Basis-Images fällig — `make test` erinnert daran.
+
+### Entwickeln und Betreiben
+
+| Befehl | Zweck |
 |---|---|
-| `make dev` | DEV-Stack vollständig hochfahren (`--build --wait`) |
-| `make dev-down` | DEV-Stack stoppen |
-| `make check` | CI-Mindeststandard: `lint` + `test` + `test-db` |
-| `make test` | Fast Unit-Tests ausführen (< 30 s) |
-| `make test-integration` | Integrationstests gegen echten Docker-Stack inkl. Mailpit |
-| `make prod-localdb` | PROD-Konfiguration mit lokaler Docker-DB starten (vor dem DB-Cutover) |
-| `make scan` | Trivy-CVE-Scan der Images (Release-Gate) |
-| `make smoke` | Smoke-Test nach Deployment ausführen |
+| `make install` | Lint- und Testwerkzeuge für das Backend installieren (einmalig, nach jedem Anheben erneut) |
+| `make dev` / `make dev-down` | DEV-Stack bauen und starten (`--build --wait`) / stoppen |
+| `make logs SERVICE=api` | Logs eines Containers |
+| `make prod` | PROD-Konfiguration starten (NGINX, FastAPI, PostgreSQL-Container); `make prod-localdb` ist ein zweiter Name dafür |
 
 ---
 
@@ -162,6 +197,7 @@ Wichtige Parameter:
 | Windows CRLF Skriptfehler | Git hat CRLF in Shell-Skripte eingefügt | Git-Attribute prüfen; `dos2unix backend/scripts/entrypoint.sh` ausführen. |
 | `403 CSRF Error` bei API-Requests | Header `X-Requested-With` fehlt | Bei manuellen REST-Calls Header `X-Requested-With: fetch` mitsenden. |
 | Session abgelaufen / 401 | Secret geändert oder Cookie abgelaufen | Neu über `/auth/login` anmelden oder Cookie im Browser löschen. |
+| Keycloak-Admin: `HTTPS required` (403) | Keycloak hält die Verbindung vom Host für extern — Docker Desktop reicht sie je nach Netzkonfiguration mit einer nicht-privaten Absenderadresse durch | Einmal je Keycloak-Container im Container freischalten; die beiden Befehle gibt `python ops/create_dev_user.py` in diesem Fall aus. |
 
 ---
 
@@ -192,12 +228,16 @@ Direktzugriff auf die IP muss scheitern, die Domain muss antworten, SSH muss geh
 
 ---
 
-## 📚 Weiterführende Dokumentation
+## 📚 Wo steht was
 
 * 🏗️ **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — Systemarchitektur, Ingress/Egress Firewall-Matrix & Container-Komposition.
-* 📖 **[docs/RUNBOOK.md](docs/RUNBOOK.md)** — Betriebs- und Notfallhandbuch (Deploy, Cutover, Backup/Restore, Notfall-Versand).
+* 📖 **[docs/RUNBOOK.md](docs/RUNBOOK.md)** — Betriebs- und Notfallhandbuch (Deploy, Backup/Restore, Notfall-Versand, Lockfile und Stücklisten).
+* 📝 **[docs/adr/](docs/adr/)** — Architecture Decision Records (ADRs): warum etwas so gebaut ist.
+* 🗒️ **[CHANGELOG.md](CHANGELOG.md)** — was sich geändert hat, je Release und unter *Unreleased*.
 * ❓ **[docs/open-questions.md](docs/open-questions.md)** — Priorisiertes Register offener Stakeholder-Fragen.
+* 🧾 **[docs/governance/](docs/governance/)** — Compliance-Unterlagen: Stücklisten (SBOM) mit Komponenten, Urhebern und Lizenzen, Ergebnis der Schwachstellenanalyse.
 * ⚖️ **[docs/betriebsrat-briefing.md](docs/betriebsrat-briefing.md)** — Betriebsrat- & DSB-Argumentationsunterlage.
 * 🔐 **[docs/dsgvo-operations.md](docs/dsgvo-operations.md)** — Prozeduren für Auskunft & Löschung (Art. 15 / 17 DSGVO).
-* 📝 **[docs/adr/](docs/adr/)** — Architecture Decision Records (ADRs).
+* ⚙️ **[.env.example](.env.example)** — jede Einstellung mit Bedeutung und Vorgabe; die einzige Quelle für die Konfiguration.
+* 🧪 **Tests** — `backend/tests/` (unit, api, integration) und `frontend/tests/`; Arbeitsweise und Definition of Done: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 * 📄 **[docs/mvp-umsetzungsplan-stoerungsinfos.md](docs/mvp-umsetzungsplan-stoerungsinfos.md)** — ursprünglicher Umsetzungsplan (Planungsstand, historisch).

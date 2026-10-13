@@ -4,7 +4,7 @@ Dieses Dokument richtet sich an Entwickler und Systemadministratoren zur Durchf�
 
 ---
 
-## 1. Schnellstart & Deployment (PROD Phase 1: Lokale Docker-DB)
+## 1. Schnellstart & Deployment (PROD)
 
 ### Erst-Deployment auf der VM
 
@@ -19,58 +19,164 @@ Dieses Dokument richtet sich an Entwickler und Systemadministratoren zur Durchf�
    chmod 600 .env
    # .env mit korrekten Werten für PROD anpassen
    ```
-3. **PROD-Stack starten**:
+3. **PROD-Stack starten** (NGINX, API und die Datenbank als Container):
    ```bash
-   make prod-localdb
+   make prod
    ```
 4. **Smoke-Test durchführen**:
    ```bash
    make smoke BASE_URL=https://stoerungsinfo.konzern.example
    ```
+5. **Zertifikate von IdP und Mailrelay prüfen** — einmal vor dem ersten Einsatz im
+   Konzernnetz. Seit Python 3.13 (das Image läuft auf 3.14) prüft die Anwendung
+   Zertifikatsketten streng nach RFC 5280; eine Kette ohne Authority Key Identifier oder
+   mit einer CA ohne kritische Basic Constraints wird abgelehnt, auch wenn ältere Clients
+   sie annehmen. `/readyz` und der Smoke-Test zeigen das nicht:
+   ```bash
+   docker compose -f compose.yaml -f compose.db.yaml -f compose.prod.yaml exec api \
+     python -c "import httpx, os; print(httpx.get(os.environ['OIDC_ISSUER_URL'] + '/.well-known/openid-configuration', timeout=10).status_code)"
+   docker compose -f compose.yaml -f compose.db.yaml -f compose.prod.yaml exec api \
+     python scripts/check_smtp.py                 # Relay: Verbindung, TLS, Anmeldung — ohne Mail
+   ```
+   Beide Aufrufe nehmen den Weg der Anwendung: denselben Proxy (`HTTPS_PROXY`), denselben
+   Vertrauensspeicher (`SSL_CERT_FILE`, sonst der mitgelieferte von certifi — nicht der des
+   Betriebssystems) und dieselbe strenge Prüfung. Erwartet ist `200`. Danach einmal
+   wirklich anmelden und einen Testversand bis „Zugestellt“ verfolgen.
+   Scheitert die Prüfung, nennt die Meldung den Grund (etwa `Missing Authority Key
+   Identifier`); das ist eine Frage an die PKI (Frage B4), kein Schalter der Anwendung.
 
 ---
 
-## 2. Migration zur externen Datenbank (Phase 2 Cutover)
+## 2. Datenbank: Container auf derselben VM
 
-Sobald die zentrale Datenbank-Infrastruktur freigeschaltet ist:
+PostgreSQL läuft in jeder Umgebung als Container auf derselben Maschine wie die Anwendung
+(`compose.db.yaml`, Volume `pg_data`) — auch in PROD. Ein Umzug auf eine externe Datenbank
+ist nicht geplant ([ADR-0030](adr/0030-postgresql-im-container-auch-in-prod.md)); die
+Cutover-Prozedur, die früher hier stand, ist entfallen. Die Verbindung bleibt im
+Docker-Netz, der Container veröffentlicht keinen Port.
 
-1. **Versand pausieren / Wartungsfenster ankündigen**.
-2. **Finalen Dump ziehen** (`pg_dumpall`, siehe Abschnitt 3):
+Damit liegt beim Betrieb der VM, was sonst ein Datenbank-Team übernähme (wer das ist: offen,
+Frage B7):
+
+* **Sicherung und Wiederherstellung:** Abschnitt 3.
+* **Patches:** PostgreSQL kommt aus dem Base-Image `postgres:18-alpine`, per Digest gepinnt
+  (`deploy/postgres/Dockerfile`; die Test-DB in `compose.dev.yaml` nennt denselben Digest).
+  Eine neue Unterversion erreicht die VM erst, wenn der Digest an beiden Stellen angehoben
+  und das Image neu gebaut ist — den aktuellen zeigt
+  `docker buildx imagetools inspect postgres:18-alpine`.
+* **Major-Upgrade:** kein bloßer Tag-Wechsel — der neue Server liest das Datenverzeichnis
+  des alten nicht. Der Weg ist Dump und Restore auf ein neues Volume; siehe unten.
+* **Server-Log:** `docker compose … logs postgres` zeigt zu einem Fehler nur die ERROR-Zeile
+  — ohne DETAIL, HINT, CONTEXT und ohne die gescheiterte Anweisung (ADR-0014; der Server
+  startet mit `log_error_verbosity=terse` und `log_min_error_statement=panic`). Die
+  vollständige Meldung steht in der Ausgabe des Clients (`psql`) und, für Fehler der
+  Anwendung, in deren Log (ohne Parameterwerte). Die ERROR-Zeile selbst zitiert, was
+  PostgreSQL nicht einordnen kann: Wer in von Hand eingegebenem SQL eine Adresse in doppelte
+  statt einfache Anführungszeichen setzt oder sie mit einer Zahl vergleicht, schreibt sie
+  ins Log.
+
+### Major-Upgrade von PostgreSQL (zuletzt 16 → 18)
+
+Der Server einer neuen Hauptversion startet nicht auf dem Datenverzeichnis der alten. Seit
+PostgreSQL 18 erwartet das Image sein Volume außerdem unter `/var/lib/postgresql` (vorher
+`/var/lib/postgresql/data`) und bricht mit einer Fehlermeldung ab, wenn es dort einen alten
+Bestand findet. Deshalb zieht der Bestand per Dump auf ein **neues** Volume um (`pg_data`);
+das alte (`db_data`) wird nicht migriert und bleibt als Rückweg liegen.
+
+Den Umzug macht `deploy/vm/pg-umzug.sh`. Solange er aussteht, verweigern `deploy.sh`,
+`demo-mode.sh start` und `update-cloudflare-ranges.sh` den Start (`pg-umzug-sperre.sh`):
+Mit dem neuen Stand des Codes legte jedes „compose up“ einen leeren Cluster an, und das
+Portal liefe ohne Konten und Historie weiter — bei offener Registrierung. **Bis der Umzug
+durch ist, nichts von Hand mit `docker compose … up` oder `make prod` starten.**
+
+1. **Code auf den neuen Stand bringen** — Pilot: Archiv wie in Abschnitt 3c (das bisherige
+   Archiv aufheben, es gehört zum Rückweg); sonst `git pull`.
+2. **Umziehen:**
    ```bash
-   ./ops/backup.sh
+   cd /opt/stoerungsinfo
+   bash deploy/vm/pg-umzug.sh                              # öffentlicher Pilot
+   OVERLAY=compose.prod.yaml bash deploy/vm/pg-umzug.sh    # Konzern-VM
    ```
-3. **Dump auf externer DB einspielen** (durch DB-Betrieb).
-4. **`.env` anpassen**:
-   `DATABASE_URL` auf externen Host umstellen.
-5. **Stack ohne DB-Overlay neu starten**:
-   ```bash
-   make prod
-   ```
-6. **Erreichbarkeit prüfen** — `/readyz` deckt DB, SMTP und Outbox-Rückstau in einem
-   Aufruf ab und schlägt fehl, wenn eine Egress-Freischaltung fehlt:
-   ```bash
-   curl -fsS -k https://localhost/readyz
-   ```
+   Das Skript hält den Stack an, liest den Bestand mit einem von Hand gestarteten
+   PostgreSQL 16, sichert jede Datenbank einzeln
+   (`/var/backups/stoerungsinfo/umzug_pg16_<datum>_<zeit>.sql.gz`), startet **nur** die neue
+   Datenbank, spielt ein und vergleicht in jeder Datenbank — auch der von Keycloak — je
+   Tabelle die Zeilenzahl und je Sequenz den Stand (nicht den Inhalt der Zeilen). Erst wenn
+   alles übereinstimmt, trägt es `PG_UMZUG_ERLEDIGT=1` in die `.env` ein. Bei einem Fehler
+   bricht es ab; die übrigen Container startet es nie. Ist der neue Server dabei schon
+   angelegt, liegt ein halbfertiges neues Volume da — die Meldung nennt den Befehl, es zu
+   entfernen; danach das Skript erneut.
+3. **Stack starten** — Pilot: `PUBLIC_HOST=<domain> ACME_EMAIL=<adresse> bash
+   deploy/vm/deploy.sh` (baut neu, stellt den Realm ein, prüft die Erreichbarkeit);
+   Konzern-VM: `make prod`. Keycloak hebt sein eigenes Schema beim ersten Start selbst an —
+   das dauert auf der kleinen VM bis zu einigen Minuten.
+
+**Meldet das Skript „enthält keinen Bestand von PostgreSQL 16“** (etwa bei einem Volume aus
+der MariaDB-Zeit, ADR-0027): Dann gibt es nichts umzuziehen, die Sperre gilt aber weiter,
+solange das Volume liegt. Wer mit leerer Datenbank neu beginnt, entfernt es bewusst —
+`cd / && docker compose -p stoerungsinfo down` (hält den Stack an, ohne die Compose-Dateien
+zu lesen; die neuen können eine ältere `.env` abweisen), dann `docker volume rm
+stoerungsinfo_db_data`. Dessen Daten sind damit weg.
+
+**Rückweg**, solange das alte Volume liegt: Stack stoppen (`docker compose … down`), die
+Zeile `PG_UMZUG_ERLEDIGT=1` aus der `.env` nehmen, den vorigen Stand des Codes zurückholen
+(Pilot: das aufgehobene Archiv; sonst auschecken) und mit `deploy.sh` bzw. `make prod`
+starten — beide bauen die Images neu, und der alte Server findet sein Volume `db_data` vor.
+`demo-mode.sh start` genügt hier nicht: Unter den Tags liegen noch die Images des neuen
+Stands, und PostgreSQL 18 verweigert das alte Volume. Was seit dem Umzug geschrieben wurde,
+ist dann weg. Für Keycloak ist das der einzige vorgesehene Weg zurück: Die alte Version
+startet auf dem angehobenen Schema zwar, warnt aber („Possibly incorrect state of
+migration“).
+
+**Später**, wenn Sicherungen vom neuen Stand vorliegen: `docker volume rm
+stoerungsinfo_db_data` und den Dump des Umzugs löschen (er enthält die Konten im Klartext).
 
 ---
 
-## 3. Backup & Restore (Lokale DB-Phase)
+## 3. Backup & Restore
+
+Die Sicherung auf der VM ist das dauerhafte Konzept, auch in PROD (ADR-0030).
 
 * **Backup**: `ops/backup.sh` legt einen Dump unter
   `/var/backups/stoerungsinfo/stoerungsinfo_<datum>_<zeit>.sql.gz` ab (Rechte `600`, weil
   er personenbezogene Klartextdaten und Passwort-Hashes enthält). Gesichert werden
-  `newsletter` und — falls vorhanden — `keycloak`. Als Cron einrichten: siehe Abschnitt 3c.
+  `newsletter` und — falls vorhanden — `keycloak`. Als nächtlichen Cron einrichten (User
+  root):
+  `0 2 * * * /opt/stoerungsinfo/ops/backup.sh >> /var/log/stoerungsinfo-backup.log 2>&1`
+* **Sicherung der VM**: Die Ziel-VM wird wie alle Linux- und Windows-VMs des Unternehmens
+  täglich und stündlich vom Tivoli Storage Manager gesichert (Auftraggeber, 2026-10-12).
+  Der Dump liegt auf der VM und ist damit Teil dieser Sicherung — ebenso die
+  Empfängerliste für den Notfall-Versand (Abschnitt 4). Eine eigene Kopie außerhalb der
+  VM legt die Anwendung nicht an; nach Entscheidung des Auftraggebers ist dafür derzeit
+  nichts weiter zu tun. Für die öffentliche Testmaschine (Abschnitt 3c) gilt das nicht.
+* **Geprobt** ist der Weg Dump → frischer Cluster → Einspielen einmal, beim Umzug auf
+  PostgreSQL 18 (Abschnitt 2, 2026-10-12): mit `deploy/vm/pg-umzug.sh` und dem
+  Pilot-Overlay auf einem eigens gebauten Bestand (PostgreSQL 16.15, Schema und
+  Beispieldaten der Anwendung, dazu Schema und Realm eines echten Keycloak 26.4.7).
+  Zeilenzahlen und Sequenzstände aller 100 Tabellen und Sequenzen stimmten überein; danach
+  startete Keycloak 26.8.0 auf dem umgezogenen Bestand, hob sein Schema an und kannte die
+  Konten noch. In einer zweiten Probe stammte der alte Bestand aus dem Compose-Stack des
+  vorigen Code-Stands (PostgreSQL 16.13); dabei lief auch der Rückweg aus Abschnitt 2
+  durch. **Nicht geprobt:** mit dem echten Bestand der Pilot-VM, der Lauf von `deploy.sh`
+  bzw. `make prod` danach und ein Restore aus der Sicherung der VM. `backup.sh`
+  erinnert nach jedem Dump daran. Die Schritte unten taugen für eine Probe nicht
+  unverändert: Sie löschen den laufenden Bestand.
 * **Restore**: Der Dump enthält Schema und Daten je Datenbank (mit vorangestelltem
   `\connect`), aber **keine Rollen und kein `CREATE DATABASE`** — die legt das Init-Skript
-  des Images beim ersten Start des frischen Clusters an. Also erst `db_data` leeren, den
+  des Images beim ersten Start des frischen Clusters an. Also erst `pg_data` leeren, den
   Postgres-Container hochfahren (Init-Skript erzeugt Rollen + leere DBs `newsletter`/
-  `keycloak`) und dann als Superuser einspielen:
+  `keycloak`) und dann als Superuser einspielen (die Befehle zeigen den öffentlichen
+  Pilot; auf der Konzern-VM steht in `P` `compose.prod.yaml` statt `compose.public.yaml`):
   ```bash
   cd /opt/stoerungsinfo
   P="docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml"
   $P down
-  docker volume rm stoerungsinfo_db_data
-  $P up -d --wait postgres                       # Init-Skript: Rollen + leere DBs
+  docker volume rm stoerungsinfo_pg_data
+  $P up -d postgres                              # Init-Skript: Rollen + leere DBs
+  # Über TCP warten: Der Hilfsserver des ersten Starts ist nur über den Unix-Socket
+  # erreichbar (`--wait` und pg_isready ohne -h meldeten ihn schon als bereit), und ein
+  # Restore, der dann beginnt, bräche ab, sobald er dem echten Server weicht.
+  for i in $(seq 1 60); do $P exec -T postgres pg_isready -h 127.0.0.1 -U postgres -q && break; sleep 2; done
   gunzip -c /var/backups/stoerungsinfo/stoerungsinfo_<datum>_<zeit>.sql.gz | \
     $P exec -T postgres psql -U postgres -d postgres -v ON_ERROR_STOP=0
   $P up -d --wait                                # restliche Container starten
@@ -83,13 +189,14 @@ Sobald die zentrale Datenbank-Infrastruktur freigeschaltet ist:
 
 ## 3b. Versand über ein echtes Postfach (Abnahme/Demo)
 
-Drei **unabhängige** Schalter in der `.env` — nicht verwechseln:
+Vier **unabhängige** Schalter in der `.env` — nicht verwechseln:
 
 | Schalter | Bedeutung |
 |---|---|
 | `MAIL_FROM` / `MAIL_FROM_NAME` | **Absender** der Mails (`From:`-Header) |
 | `SMTP_*` | **Wer transportiert** — Mailpit (sammelt, stellt nicht zu) oder ein echter Server |
 | `MAIL_REDIRECT_TO` | **Umleitung aller Mails** an eine Adresse statt an die Abonnenten (Default: aus) |
+| `SMTP_MAX_PER_DAY` | **Obergrenze** der Mails in 24 Stunden — was darüber liegt, wird nicht gesendet (Default: `0` = keine) |
 
 ### Absender setzen
 
@@ -97,8 +204,11 @@ Reine Konfiguration, sofort wirksam nach Neustart:
 
 ```dotenv
 MAIL_FROM=<absender@example.de>
-MAIL_FROM_NAME=Störungsinfo (Test)
+MAIL_FROM_NAME="Störungsinfo (Test)"
 ```
+
+Werte mit Leerzeichen oder Klammern gehören in Anführungszeichen: Die Skripte unter
+`deploy/vm/` und `ops/backup.sh` lesen die `.env` mit der Shell ein.
 
 Solange über Mailpit versendet wird, ist jede Absenderadresse erlaubt — Mailpit prüft
 nichts. Ein echter Server akzeptiert dagegen nur Absender, die zum authentifizierten
@@ -162,9 +272,9 @@ andernfalls ersetzt Google den Absender.
 
   ```sql
   SELECT email, is_active FROM users ORDER BY is_active DESC;
-  DELETE s FROM subscriptions s JOIN users u ON u.id = s.user_id
-      WHERE u.email LIKE '%@example.corp';
-  UPDATE users SET is_active = 0 WHERE email LIKE '%@example.corp';
+  DELETE FROM subscriptions s USING users u
+      WHERE u.id = s.user_id AND u.email LIKE '%@example.corp';
+  UPDATE users SET is_active = false WHERE email LIKE '%@example.corp';
   ```
 
 * **Login reaktiviert Testuser.** Meldet sich jemand per SSO an, wird sein Datensatz
@@ -176,7 +286,8 @@ andernfalls ersetzt Google den Absender.
 
 * **Integrationstests verändern Abos** (sie abonnieren/kündigen KAP für die Testuser)
   und würden mit echtem SMTP Mails nach außen schicken. Der Session-Guard bricht sie
-  deshalb ab, solange `SMTP_HOST` nicht `mailpit` ist.
+  deshalb ab, solange `SMTP_HOST` nicht `mailpit` ist — ebenso, solange eine Umleitung
+  oder ein Tageslimit gesetzt ist: Damit scheiterten die Tests auch über Mailpit.
 
 Praktikable Wege für einen echten Testversand:
 
@@ -191,9 +302,84 @@ Praktikable Wege für einen echten Testversand:
 
 `MAIL_REDIRECT_TO=<zieladresse>` schickt **alle** Mails an diese eine Adresse. Erzeugt
 weiterhin eine Mail je Empfänger und flutet bei großen Verteilern das Zielpostfach.
-**In Produktion leer lassen.**
+Erlaubt ist genau eine Adresse; mit einer Liste oder einem Anzeigenamen startet die
+Anwendung nicht. **In Produktion leer lassen.**
 
-**Immer:** Nach `.env`-Änderungen neu starten (`make dev` bzw. `make prod-localdb`) —
+### Tageslimit (Testversand über ein privates Postfach)
+
+`SMTP_MAX_PER_DAY=<n>` begrenzt, wie viele Mails der Versand innerhalb von 24 Stunden an
+den SMTP-Server übergibt ([ADR-0032](adr/0032-tageslimit-fuer-testversand.md)). Gezählt
+wird aus der Datenbank — über alle Versände und über Neustarts hinweg, umgeleitete Mails
+eingeschlossen. Ist die Grenze erreicht, werden die übrigen Empfänger **nicht** beliefert
+und in der Historie als fehlgeschlagen geführt; nachgesendet wird nichts.
+**In Produktion `0` lassen** — sonst gehen Störungsmeldungen verloren.
+
+Für einen Testversand über ein privates Postfach beides setzen:
+
+```dotenv
+SMTP_MAX_PER_DAY=5
+MAIL_REDIRECT_TO=<eigene@adresse>
+```
+
+Danach den Stack neu starten und — wo Keycloak einen Mailserver hat — das Realm-Skript
+laufen lassen (siehe unten).
+
+**Was gezählt wird:** jede Mail der letzten 24 Stunden, die der Versand als übergeben
+vermerkt hat, gleich über welchen Server sie ging. Wer vorher über Mailpit getestet hat
+und dann auf das private Postfach umstellt, hat diese Mails noch im Zähler: Der erste
+echte Versand kann als „Fehlgeschlagen 0/n“ enden, ohne dass eine Mail das Postfach
+berührt hat. So viele zählen gerade:
+
+```sql
+SELECT count(*) FROM dispatch_recipients
+WHERE status = 'sent' AND sent_at >= (now() AT TIME ZONE 'UTC') - interval '24 hours';
+```
+
+Nicht gezählt wird die Testmail von `check_smtp.py --send-to` — und eine Mail, die der
+Server annahm, deren Bestätigung aber verloren ging (ADR-0032).
+
+**Warum ein Versand gescheitert ist,** zeigt die Versand-Maske nicht — dort steht nur
+„Fehlgeschlagen“ oder „Mit Fehlern“. Der Grund steht im Log des api-Containers, eine Zeile
+je betroffenem Versand (`docker compose … logs api | grep "Tageslimit erreicht"`):
+
+```
+Versand 12: Tageslimit erreicht (SMTP_MAX_PER_DAY=5) — 3 Empfänger nicht gesendet
+```
+
+und je Empfänger in der Datenbank:
+
+```sql
+-- Gründe der nicht belieferten Empfänger je Versand, neueste zuerst
+SELECT dispatch_id, last_error, count(*) AS empfaenger
+FROM dispatch_recipients
+WHERE status = 'failed'
+GROUP BY dispatch_id, last_error
+ORDER BY dispatch_id DESC
+LIMIT 20;
+```
+
+**Welches Limit gilt,** steht in der Startzeile des Workers im api-Log:
+`Outbox-Worker gestartet (Poll-Intervall 5.0s, Tageslimit: 5 Mails in 24 Stunden)` bzw.
+`… kein Tageslimit)`. `python backend/scripts/check_smtp.py` zeigt den Wert aus der `.env`
+— er gilt erst nach dem Neustart.
+
+**Keycloak sendet mit gesetztem Limit keine eigenen Mails** — sie gingen über dasselbe
+Postfach und würden nicht mitgezählt. Die Realm-Skripte richten den Realm dann ohne
+Mailserver ein und schalten „Passwort vergessen“ ab; umgestellt wird erst, wenn sie laufen:
+
+* lokal: `python ops/configure_dev_realm.py` (nur nötig, wenn der DEV-Realm je den
+  Mailserver aus der `.env` bekommen hat — frisch importiert hat er keinen);
+* Pilot-VM (3c): das Limit über einen erneuten Lauf von `deploy.sh` setzen und wieder
+  aufheben, nicht nur in der `.env` — `demo-mode.sh start` stellt den Realm nicht um:
+  `PUBLIC_HOST=<domain> ACME_EMAIL=<adresse> SMTP_MAX_PER_DAY=5 bash deploy/vm/deploy.sh`
+  (bzw. `=0`; die beiden ersten Angaben verlangt das Skript bei jedem Lauf). Ob Keycloak
+  umgestellt ist, zeigt die Ausgabe (`Tageslimit gesetzt (SMTP_MAX_PER_DAY=5): Realm ohne
+  Mailserver, Passwort-Reset abgeschaltet — …`) und die Anmeldeseite: Der Link „Passwort
+  vergessen“ fehlt. Bricht `deploy.sh` vorher ab, ist Keycloak NICHT umgestellt. Wer in
+  dieser Zeit sein Passwort vergisst, bekommt ein neues über
+  `bash deploy/vm/create-user.sh <email>`.
+
+**Immer:** Nach `.env`-Änderungen neu starten (`make dev` bzw. `make prod`) —
 die Konfiguration wird beim Start gelesen. Nach Codeänderungen zusätzlich `--build`,
 weil Code und Frontend ins Image gebacken sind.
 
@@ -204,8 +390,9 @@ Unterschied zu `compose.prod.yaml`: Keycloak läuft mit (es gibt keinen Konzern-
 das Zertifikat kommt von Let's Encrypt statt aus der Konzern-PKI, und die Speicher-
 limits sind auf eine kleine VM (1,8 GB RAM) ausgelegt.
 
-**Aktuelle Instanz:** `https://kunden-stoerungs-info.com` auf 94.237.99.120
-(Ubuntu 26.04, 2 vCPU, 1,8 GB RAM + 2 GB Swap).
+**Aktuelle Instanz:** `https://kunden-stoerungs-info.com`
+(Ubuntu 26.04, 2 vCPU, 1,8 GB RAM + 2 GB Swap). Die Origin-Adresse der VM wird nicht im
+Repository geführt: Die VM steht hinter Cloudflare, und das Repository ist öffentlich.
 
 ### Aufbau von null
 
@@ -217,7 +404,7 @@ scp deploy/vm/bootstrap.sh root@<host>:/tmp/ && ssh root@<host> bash /tmp/bootst
 #    sonst schlägt die Zertifikatsausstellung fehl)
 
 # 3. Code auf die VM bringen (kein Registry-Zugang nötig)
-tar --exclude=.git --exclude=.env -czf /tmp/app.tgz compose*.yaml backend frontend \
+tar --exclude=.git --exclude=.env --exclude=frontend/tests -czf /tmp/app.tgz compose*.yaml backend frontend \
     deploy ops .env.example Makefile
 scp /tmp/app.tgz root@<host>:/tmp/
 ssh root@<host> 'mkdir -p /opt/stoerungsinfo && tar -xzf /tmp/app.tgz -C /opt/stoerungsinfo'
@@ -243,6 +430,14 @@ ssh root@<host> 'cd /opt/stoerungsinfo && bash deploy/vm/create-user.sh <mail>'
 `deploy.sh` ist idempotent: Ein erneuter Lauf aktualisiert Container und Realm, behält
 aber Secrets und Zertifikat. Nur Mail-Variablen werden übernommen, wenn sie beim Aufruf
 gesetzt sind.
+
+Zum Realm gehört seit ADR-0028 „nur E-Mail und Passwort“: `configure-realm.sh` leert
+gespeicherte Namen, nimmt Vor-/Nachname aus dem Benutzerprofil und den Scope `profile` vom
+Client. Die Anwendung muss dafür schon auf dem neuen Stand laufen (sie fragt `profile`
+nicht mehr an) — `deploy.sh` hält diese Reihenfolge ein, und `configure-realm.sh` bricht
+vor dem Umbau ab, solange die laufende Anwendung `profile` noch anfragt. `create-user.sh` erst
+danach verwenden: Gegen einen noch nicht umgestellten Realm bleibt ein Konto ohne Namen beim
+Login an „Update Account Information“ hängen.
 
 ### Betriebseigenschaften
 
@@ -295,8 +490,8 @@ betriebsbereit, Cloudflare-Beschränkung wieder aktiv.
 ### Demo-Zugänge (Zugangsdaten zum Weitergeben)
 
 ```bash
-# 1. Konto anlegen (festes Passwort, Name gegen die VERIFY_PROFILE-Sperre)
-bash deploy/vm/create-user.sh <mail> --password "<pw>" --name "Vor Nach"
+# 1. Konto anlegen (festes Passwort)
+bash deploy/vm/create-user.sh <mail> --password "<pw>"
 # 2. Adminrechte gibt das Portal, nicht das Skript: als Admin anmelden und in
 #    /rollen.html das Häkchen setzen. Kontrolle per SQL: Abschnitt 6b.
 
@@ -305,7 +500,7 @@ bash deploy/vm/create-user.sh <mail> --disable
 bash deploy/vm/create-user.sh <mail> --enable    # wieder freigeben
 ```
 
-`--disable` sperrt die Anmeldung im IdP **und** setzt `users.is_active = 0` im Portal.
+`--disable` sperrt die Anmeldung im IdP **und** setzt `users.is_active = false` im Portal.
 Beides muss zusammenlaufen: Ein nur im IdP gesperrter Admin bliebe für die Anwendung
 ein *aktiver* Admin und würde den Notausgang `ADMIN_BOOTSTRAP_EMAILS` dauerhaft
 blockieren (der greift nur, solange kein aktiver Admin existiert) — wer den letzten
@@ -401,20 +596,24 @@ gegenseitig aus, ein Angreifer verteilt sich über mehrere Standorte.
 
 Wer diese Konfiguration ändert, sollte wissen, warum sie so aussieht:
 
-* **Keine Demo-Konten.** Der importierte Realm bringt DEV-Testnutzer mit dem Passwort
-  `test` mit — einen davon mit Adminrolle. Öffentlich wäre das eine offene Tür zur
-  Versandmaske und zur gesamten Empfängerliste. `configure-realm.sh` löscht alle Konten
+* **Keine Demo-Konten.** Der importierte Realm bringt DEV-Testnutzer mit dem bekannten
+  Passwort `test` mit. Öffentlich könnte sich damit jeder anmelden — und `admin1@example.corp`
+  würde Admin, wo die Adresse noch in `ADMIN_BOOTSTRAP_EMAILS` steht und kein Admin
+  existiert. `configure-realm.sh` löscht alle Konten
   mit Beispiel-Domain bei **jedem** Deploy und bricht ab, falls eines übrig bleibt.
 * **Allowlist statt Blockliste für `/idp`.** Nur Anmeldung, Registrierung, Protokoll-
   und Theme-Pfade des Realms `dev` werden durchgereicht; alles andere endet mit 404 —
   Adminkonsole, Admin-REST-API, `master`-Realm, Metriken, Health. Eine frühere
   Regex-Blockliste war per Matrix-Parameter (`/idp/admin;x/...`) umgehbar; `^~`-Präfixe
   erfassen solche Varianten. **Nicht auf eine Blockliste zurückbauen.**
-* **Ratenlimits.** Registrierung und Passwort-Reset lösen je Aufruf eine Mail über das
-  konfigurierte Postfach aus — ohne Bremse ließe sich der Dienst als Mailversender für
-  Fremde missbrauchen und das Tageskontingent des Kontos in Sekunden verbrauchen.
-  Wichtig: `SMTP_MAX_PER_MINUTE` greift hier **nicht**, weil Keycloak über seinen
-  eigenen SMTP-Server sendet, nicht über den Outbox-Worker.
+* **Ratenlimits.** Ein Passwort-Reset löst je Aufruf eine Mail über das konfigurierte
+  Postfach aus (die Registrierung nur, wenn die Bestätigungsmail eingeschaltet ist) —
+  ohne Bremse ließe sich der Dienst als Mailversender für Fremde missbrauchen und das
+  Tageskontingent des Kontos in Sekunden verbrauchen. Wichtig: `SMTP_MAX_PER_MINUTE`
+  und `SMTP_MAX_PER_DAY` greifen hier **nicht**, weil Keycloak über seinen eigenen
+  SMTP-Zugang sendet, nicht über den Outbox-Worker. Die Ratenlimits gelten je
+  Client-Adresse und Minute, nicht je Tag; mit gesetztem Tageslimit sendet Keycloak
+  deshalb gar nicht (Abschnitt 3b).
 * **X-Forwarded-For wird gesetzt, nicht angehängt.** Sonst könnte ein Client eine fremde
   IP voranstellen und damit Brute-Force-Zähler und Ratenlimits auf eine andere Adresse
   umlenken.
@@ -468,6 +667,12 @@ B1) entfallen Punkt 1 und 2 von selbst; Punkt 3 muss aktiv aus dem Code entfernt
 
 ### Weg zurück, wenn ein Deploy schiefgeht
 
+Über den Wechsel auf PostgreSQL 18 und Keycloak 26.8 hinweg gilt ein anderer Rückweg: der
+aus Abschnitt 2 (altes Volume `db_data` und das vorige Archiv). Der Dump, den `deploy.sh`
+bei diesem Lauf zieht, stammt schon vom umgezogenen Bestand; den Stand davor hält der Dump
+von `pg-umzug.sh`. Ist das alte Volume gelöscht, führt kein Weg mehr unter diese beiden
+Versionen zurück.
+
 Es gibt **kein** Image-Rollback: `IMAGE_TAG` bleibt `local` (auf der VM liefert
 `git describe` nichts, weil der Transport `.git` ausschließt), der Neubau nimmt dem
 alten Image den Tag, und `docker image prune` räumt es am Ende weg. Der Weg zurück ist
@@ -485,13 +690,18 @@ Bis dahin liefert NGINX 502, sobald der api-Container nicht startet. Der schnell
 Zwischenschritt ist `demo-mode.sh stop` — dann ist die Instanz sauber aus statt halb
 kaputt.
 
+Liegt der vorige Stand vor ADR-0028, fragt er noch den Scope `profile` an. Hat
+`configure-realm.sh` den Realm schon umgestellt, endet damit jede Anmeldung mit
+`invalid_scope`: Dann den Dump von **vor** der Umstellung einspielen (er enthält auch die
+Datenbank `keycloak`) oder dem Client den Scope `profile` wieder zuweisen.
+
 ### Offene Punkte für diese Instanz
 
 * **Backup ist nicht automatisiert.** `ops/backup.sh` sichert beide Datenbanken
   (`newsletter` und `keycloak` — ohne die zweite gäbe es nach einem Restore keine
   Konten mehr), und `deploy.sh` zieht vor jedem Ausrollen einen Dump. Für Dauerbetrieb
-  als Cron einrichten und eine Kopie außerhalb der VM ablegen:
-  `0 2 * * * /opt/stoerungsinfo/ops/backup.sh >> /var/log/stoerungsinfo-backup.log 2>&1`
+  als Cron einrichten und eine Kopie außerhalb der VM ablegen — Cron-Zeile und was für
+  die Kopie fehlt: Abschnitt 3.
 * **`.env` existiert nur auf der VM.** Geht sie verloren, passen die generierten
   Passwörter nicht mehr zu den Daten in den Volumes (das Init-Skript vergibt die
   DB-Passwörter nur bei leerem Datenverzeichnis). Verschlüsselte Kopie anlegen.
@@ -514,10 +724,10 @@ Fällt während einer Großstörung das Portal, die DB oder der IdP aus:
 
    ```sql
    SELECT u.email FROM users u JOIN subscriptions s ON s.user_id = u.id
-   WHERE s.topic_id = '<topic>' AND u.is_active = 1
+   WHERE s.topic_id = '<topic>' AND u.is_active
    UNION
-   SELECT email FROM users WHERE is_active = 1
-     AND (SELECT is_mandatory FROM topics WHERE id = '<topic>') = 1;
+   SELECT email FROM users WHERE is_active
+     AND (SELECT is_mandatory FROM topics WHERE id = '<topic>');
    ```
 
 2. **Manueller Versand**: Das Problemmanagement versendet die Benachrichtigung über
@@ -541,35 +751,102 @@ Versandweg, der mitgepflegt werden müsste.
 
 ---
 
-## 5b. Lockfile & SBOM (Lieferkette, ADR-0026)
+## 5b. Lockfile, Stücklisten & Schwachstellenbericht (Lieferkette, ADR-0026)
 
-`requirements.txt` ist die menschenlesbare Quelle. Nach **jeder** Änderung daran das
-Lockfile und die SBOM neu erzeugen — beides in `python:3.12-slim`, damit die aufgelösten
-Versionen zum Laufzeit-Image passen:
+`requirements.txt` ist die menschenlesbare Quelle. Nach **jeder** Änderung daran — und nach
+jedem Anheben eines Basis-Image — das Lockfile und die Unterlagen in `docs/governance/` neu
+erzeugen:
 
 ```sh
-# 1. Gepinntes, gehashtes Lockfile aus requirements.txt (im Laufzeit-Image)
-docker run --rm -v "$PWD/backend:/w" -w /w python:3.12-slim sh -c '
-  pip install -q pip-tools &&
+# 1. Gepinntes, gehashtes Lockfile aus requirements.txt — im Basis-Image aus
+#    backend/Dockerfile, damit die aufgelösten Versionen zum Laufzeit-Image passen.
+#    Bestehende Pins bleiben stehen; ein einzelnes Paket hebt
+#    `--upgrade-package <name>` an (etwa nach einer Sicherheitsmeldung), alle zusammen
+#    hebt `--upgrade` an. Nicht pip-tools 7.6.1 mit click ab 8.5: Die Paarung schreibt
+#    ein nie übergebenes `--no-index` in die Kopfzeile des Lockfiles.
+docker run --rm -v "$PWD/backend:/w" -w /w python:3.14.8-slim sh -c '
+  pip install -q pip-tools==7.6.2 &&
   pip-compile --generate-hashes --strip-extras -o requirements.lock requirements.txt'
 
-# 2. SBOM (CycloneDX 1.6) der Laufzeit-Closure, je Komponente mit Lizenz
-docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c '
-  python -m venv /venv && /venv/bin/pip install -q -r backend/requirements.lock &&
-  pip install -q cyclonedx-bom &&
-  cyclonedx-py environment /venv/bin/python --of JSON -o docs/governance/stoerungsinfo-app.cdx.json'
+# 2. Stücklisten, Komponentenliste und Schwachstellenbericht
+make governance                      # Windows: .\make.ps1 governance
 ```
 
-Danach in `docs/governance/stoerungsinfo-app.cdx.json` die Wurzelkomponente (`metadata.component`)
-auf den aktuellen Git-Stand setzen. Der Container-Build zieht das Lockfile automatisch
-(`--require-hashes`, Dockerfile).
+Der Container-Build zieht das Lockfile automatisch (`--require-hashes`, Dockerfile). Unter
+Windows im OneDrive-Pfad verweigert Docker Desktop den Bind-Mount (`-v`) in Schritt 1: die
+Dateien stattdessen mit `docker cp` in einen per `docker create` angelegten Container hinein-
+und das Ergebnis wieder herauskopieren. Schritt 2 kommt ohne Bind-Mount aus.
 
-**Voll-Image-Stückliste** (inkl. OS-Pakete des Base-Image, nicht nur Python): auf dem
-gebauten Image mit dem vorhandenen Trivy-Werkzeug (`make scan`):
+Schritt 2 läuft auf einem Entwicklerrechner, nicht auf der VM: Er braucht einen Git-Checkout
+(die Unterlagen nennen den Commit), Docker mit `buildx`, Python ab 3.11, eine `.env` für
+`docker compose build` und die bestehende `docs/governance/stoerungsinfo-app.cdx.json`. Am
+besten auf einem eingecheckten Stand laufen lassen — sonst tragen die Unterlagen den Vermerk
+„mit nicht eingecheckten Änderungen“ (in der Stückliste: `-dirty`).
+
+**Was `make governance` tut** (`ops/governance.py erzeuge`, nach dem Bau der Images unter
+dem Tag `local`, gleich was `IMAGE_TAG` in der `.env` sagt):
+
+* **Stückliste der Anwendung** (`stoerungsinfo-app.cdx.json`, CycloneDX 1.6): `cyclonedx-bom`
+  7.5.0 liest die Python-Umgebung im gebauten Image. Das Skript ergänzt je Paket die Autoren
+  (aus den Metadaten des Pakets, ohne Adressen) und das, was das Paket in seiner eigenen
+  Stückliste nennt, und setzt die Anwendung als Wurzel. Name, Version und Herausgeber der
+  Wurzel übernimmt es aus der bestehenden Datei; der Commit darin ist der Stand, auf dem
+  erzeugt wurde.
+* **Stückliste und Scan je Image** mit Trivy — per Digest gepinnt, als Container, ohne
+  Docker-Socket: Das Image geht als Archiv hinein, der Scan läuft ohne Netz. Vorher lädt das
+  Skript die Schwachstellen-Datenbank in das Volume `stoerungsinfo-trivy-cache` (gut 1 GB
+  Download, rund 3 GB belegt; die Datenbank gilt einen bis drei Tage, danach lädt der
+  nächste Lauf sie neu. `docker volume rm stoerungsinfo-trivy-cache` gibt den Platz frei).
+  Erreichbar sein müssen: Docker Hub (Scanner-Image), `mirror.gcr.io` oder ersatzweise
+  `ghcr.io` (Datenbank), `pypi.org` und `files.pythonhosted.org` (Werkzeug der Stückliste).
+  Ob ein Basis-Image noch aktuell ist, fragt das Skript bei dessen Registry ab (Docker Hub,
+  `quay.io`); ohne Antwort steht im Bericht „nicht geprüft“.
+* **`KOMPONENTEN.md` und `SCHWACHSTELLEN.md`** aus diesen Dateien.
+
+**Danach von Hand:** In `SCHWACHSTELLEN.md`, Abschnitt 3, steht jede Lücke einmal, die
+CRITICAL, HIGH oder noch nicht eingestuft ist (UNKNOWN). Was dort „in Prüfung“ heißt, ist
+neu und braucht einen Eintrag in `schwachstellen-bewertung.toml` (der Kopf der Datei erklärt
+die Felder); der letzte Abschnitt, „Bewertungen ohne Fund“, nennt Einträge und Kennungen,
+die auf keinen Fund mehr zutreffen. Abschnitt 4 trägt Angaben von Hand zu dem, was der
+Scanner nicht sieht — meldet er dort „Veraltet“, ist die Angabe für die neue Version neu zu
+prüfen. Dann genügt
 
 ```sh
-trivy image --format cyclonedx --output docs/governance/stoerungsinfo-image.cdx.json stoerungsinfo-api:local
+python ops/governance.py bericht      # schreibt nur die beiden Markdown-Dokumente neu
 ```
+
+`make test` prüft, dass `requirements.txt`, Lockfile und Stückliste zueinander passen, dass
+der Scan die Basis-Images aus den vier Dockerfiles der untersuchten Images beschreibt und
+dass beide Markdown-Dokumente dem entsprechen, was das Skript aus den Dateien daneben
+schreibt. Nicht erfasst: neue Versionen von Mailpit und Certbot (unverändert bezogene
+Images, nicht im Scan).
+
+**Trivy anheben:** Version und Digest stehen in `ops/governance.py` (`TRIVY`); den Digest
+liefert `docker buildx imagetools inspect aquasec/trivy:<version>`. Immer per Digest beziehen:
+Im März 2026 lagen unter den Tags 0.69.4 bis 0.69.6 manipulierte Images
+(GHSA-69fq-xp46-6x23).
+
+## 5c. Testwerkzeug der Frontend-Tests anheben (ADR-0029)
+
+Playwright ist in `frontend/tests/package.json` exakt gepinnt. Weil sich der Browser der
+Entwicklerrechner selbst aktualisiert, gehört das Anheben zur Routine:
+
+```sh
+cd frontend/tests
+# 1. Version in package.json ändern, dann das Lockfile neu schreiben
+npm install --package-lock-only
+# 2. Installieren, Herkunft der installierten Pakete prüfen (Registry-Signaturen),
+#    erst dann die Tests laufen lassen
+npm ci && npm audit signatures && npm test
+```
+
+Die CI lädt das Chromium, das zur gepinnten Version gehört (`make install-frontend-browser`);
+dort ändert sich nichts von selbst. Nichts hiervon gelangt auf die VM.
+
+Vor dem Anheben die Versionshinweise und die offenen Fehlerberichte der neuen Version lesen.
+Stand 2026-10-12 bleibt es bei 1.63.0: 1.64.0 beendet eine Navigation nicht mehr, die mit
+204 beantwortet wird (microsoft/playwright#43279) — so fangen die Tests Seitenwechsel ab
+(Regel 13 in `frontend/tests/README.md`), sie blieben dort hängen.
 
 ---
 
@@ -601,13 +878,13 @@ Nur zwei Lagen rechtfertigen den direkten DB-Zugriff: Es hat **niemand mehr Admi
 ```sql
 -- Neuen Verteiler anlegen
 INSERT INTO topics (id, name, description, is_mandatory, is_active)
-VALUES ('sap-hr', 'SAP HR Störungen', 'Benachrichtigungen zu HR-Systemen', 0, 1);
+VALUES ('sap-hr', 'SAP HR Störungen', 'Benachrichtigungen zu HR-Systemen', false, true);
 
 -- Verteiler deaktivieren (verschwindet sofort aus Abo-Maske und Versand-Auswahl)
-UPDATE topics SET is_active = 0 WHERE id = 'interflex';
+UPDATE topics SET is_active = false WHERE id = 'interflex';
 
 -- Pflicht-Kennzeichen kippen (z. B. wenn der Betriebsrat das Zwangs-Abo nicht mitträgt)
-UPDATE topics SET is_mandatory = 0 WHERE id = 'zentrale-stoerungen';
+UPDATE topics SET is_mandatory = false WHERE id = 'zentrale-stoerungen';
 -- Kontrolle: ein Tippfehler im Slug wäre ein stiller No-op
 SELECT id, is_mandatory FROM topics WHERE id = 'zentrale-stoerungen';
 ```
@@ -638,15 +915,15 @@ existiert ihre Zeile in `users` (JIT-Provisioning, [ADR-0010](adr/0010-jit-provi
 
 ```sql
 -- Adminrecht setzen
-UPDATE users SET is_admin = 1 WHERE email = 'vorname.nachname@example.corp';
+UPDATE users SET is_admin = true WHERE email = 'vorname.nachname@example.corp';
 
 -- Kontrolle: wer hat das Portal-Kennzeichen?
-SELECT id, email, is_active, is_admin FROM users WHERE is_admin = 1;
+SELECT id, email, is_active, is_admin FROM users WHERE is_admin;
 ```
 
 Wirkt sofort — die Autorisierung liest das Kennzeichen bei jeder Anfrage. Die
 Navigationspunkte erscheinen nach einem Neuladen der Seite. Ist der Empfänger
-deaktiviert (`is_active = 0`), zuerst reaktivieren, sonst endet die Anmeldung an
+deaktiviert (`is_active = false`), zuerst reaktivieren, sonst endet die Anmeldung an
 „Bitte neu anmelden“.
 
 Ab hier läuft die Rechtevergabe wieder über die Oberfläche: `/rollen.html`. Auch hier

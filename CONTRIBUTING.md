@@ -9,7 +9,7 @@
 
 Ein Change ist fertig, wenn:
 
-1. **Tests** grün und für neue Logik erweitert; `make check` läuft durch (`lint` + `test` + `test-db`, also Ruff/mypy, Unit-Tests und API-Tests gegen die PostgreSQL-tmpfs); Coverage-Gate (80 % auf `app/domain` + `app/mail`) gehalten.
+1. **Tests** grün und für neue Logik erweitert; `make check` läuft durch (`lint` + `test` + `test-frontend` + `test-db`, also Ruff/mypy, Unit-Tests, Frontend-Tests im Browser und API-Tests gegen die PostgreSQL-tmpfs). Das Coverage-Gate (80 % auf `app/domain`, `app/mail`, `app/api` und `app/core`) misst nur die CI — `make check` enthält es nicht.
 2. **`.env.example`** bei jeder ENV-Änderung aktualisiert — das CI-Gate `backend/scripts/check_env_example.py` erzwingt es.
 3. **`docs/ARCHITECTURE.md`** aktualisiert bei neuen Komponenten oder Verbindungen — **jede neue Netzverbindung braucht eine Zeile in der Egress-/Ingress-Matrix**.
 4. **ADR** geschrieben bei Architekturentscheidungen (`docs/adr/0000-template.md`). Ein überholtes ADR wird **nie gelöscht und nie umgeschrieben**: Es bekommt die Statuszeile `**Status:** Abgelöst durch [ADR-NNNN](NNNN-titel.md)` (gilt nur teilweise etwas nicht mehr: Status bleibt, ein Absatz „Teilweise abgelöst durch ADR-NNNN“ am Ende sagt, was genau entfällt).
@@ -19,7 +19,7 @@ Ein Change ist fertig, wenn:
 ## PR-Checkliste (kopieren)
 
 ```markdown
-- [ ] make check grün (Lint, Unit, API inkl. Coverage-Gate)
+- [ ] make check grün (Lint, Unit, Frontend, API); Coverage-Gate läuft in der CI
 - [ ] Tests für neue Logik ergänzt
 - [ ] .env.example aktuell (check_env_example.py grün)
 - [ ] ARCHITECTURE.md / Egress-Matrix aktuell (falls Komponenten/Verbindungen geändert)
@@ -40,5 +40,6 @@ Ein Change ist fertig, wenn:
 ## Entwickeln
 
 - Linux/Mac/CI: `make <target>` · Windows: `.\make.ps1 <target>` (identische Targets, Quelle der Wahrheit ist das Makefile).
-- Schneller Loop: `make test` (< 30 s, ohne Docker) → `make test-db` (API-Tests) → vor Release `make test-integration`.
+- Voraussetzungen und einmalige Installation (`make install`, `make install-frontend`): [README](README.md). Regeln für Frontend-Tests: [frontend/tests/README.md](frontend/tests/README.md).
+- Schneller Loop: `make test` (< 30 s, ohne Docker) → `make test-frontend` (Browser, ohne Docker) → `make test-db` (API-Tests) → vor Release `make test-integration`.
 - Branch pro Arbeitspaket, kleine Commits, Merge nach grünem `make check`; `main` ist immer lauffähig.
