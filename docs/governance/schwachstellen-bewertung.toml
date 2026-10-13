@@ -1,0 +1,461 @@
+# Bewertung der Schwachstellen — die einzige Datei in diesem Ordner, die von Hand gepflegt
+# wird. Daraus und aus schwachstellen.json entsteht SCHWACHSTELLEN.md:
+#
+#     python ops/governance.py bericht
+#
+# [[bewertung]] — eine Lücke oder mehrere desselben Pakets in einem Image:
+#   image        api | nginx | postgres | keycloak
+#   paket        Quellpaket, wie es in SCHWACHSTELLEN.md fett über der Tabelle steht
+#   ort          genau der Text, der dort hinter „in“ steht (Datei oder Paket, worin die
+#                Bibliothek steckt); ohne „ort“ gilt der Eintrag nur für Funde ohne Ort
+#   cves         Kennungen, für die der Eintrag gilt. Ohne „cves“ gälte er für ALLE Lücken des
+#                Pakets, auch für künftige — deshalb hier immer angeben.
+#   status       not_affected | affected | fixed | under_investigation   (Wörter wie bei VEX)
+#   warum        nur bei not_affected, einer von:
+#                component_not_present | vulnerable_code_not_present |
+#                vulnerable_code_not_in_execute_path |
+#                vulnerable_code_cannot_be_controlled_by_adversary |
+#                inline_mitigations_already_exist
+#   begruendung  ein bis drei Sätze, die jemand nachprüfen kann
+#   massnahme    Pflicht bei affected, sonst nach Bedarf
+#   stand        Datum der Bewertung
+#
+# [[ohne_scan]] — was der Scanner nicht sieht oder nicht meldet (Abschnitt 4):
+#   komponente, version, aussage, stand; „offen = true“ kennzeichnet, was in Prüfung ist. Dazu
+#   „version_aus“, damit der Bericht merkt, wenn die Aussage nicht mehr zur Version im Bestand
+#   passt:
+#     "api:PYTHON_VERSION"           Versionsangabe eines Image (schwachstellen.json, stand)
+#     "paket:cryptography:openssl"   Bibliothek, die ein Python-Paket mitbringt
+#     "sbom:nginx:libssl3"           Paket aus der Stückliste eines Image
+#
+# [[massnahme]] — Abschnitt „Mögliche Maßnahmen“: titel, wirkung, aufwand.
+#
+# methode — ein Absatz, der im Bericht unter der Übersicht der Bewertungen steht.
+
+methode = "Geprüft ist je Lücke am gebauten Image: an den Dateien, an den Abhängigkeiten der Programme und in Wegwerf-Containern (welche Prozesse Entrypoint, Kommando und Healthcheck starten, welche Bibliotheken der Python-Prozess beim Import der Anwendung lädt, wer eine Bibliothek einbindet) — nicht an einem laufenden Stack. Jede Bewertung ist in einem zweiten Durchgang gegengeprüft, der sie zu widerlegen suchte."
+
+# ---------------------------------------------------------------------------
+# api — Betriebssystem-Pakete (Debian 13). Im Container laufen als Nutzer app (uid 999, ohne
+# Capabilities) laut Dockerfile und Compose: der Entrypoint (sh, alembic, sleep), uvicorn, alle 10 s der Healthcheck
+# (python) und bei Bedarf Betriebsbefehle per „docker compose exec api python …“. Der Code der
+# Anwendung startet keine Unterprozesse.
+# ---------------------------------------------------------------------------
+
+[[bewertung]]
+image = "api"
+paket = "util-linux"
+cves = ["CVE-2026-76642", "CVE-2026-78410"]
+status = "not_affected"
+warum = "vulnerable_code_cannot_be_controlled_by_adversary"
+begruendung = "Beide Lücken liegen in libmount und setzen voraus, dass ein Nicht-Root-Nutzer über das setuid-Programm mount einen von root in /etc/fstab freigegebenen Eintrag einhängt (Option user/users mit X-mount.*; bei CVE-2026-76642 zusätzlich ein Hilfsprogramm /sbin/mount.<typ>, bei CVE-2026-78410 ein bind-Eintrag). Im Image enthält /etc/fstab nur eine Kommentarzeile (root, 0644), es gibt kein /sbin/mount.*, und in den geprüften Aufrufen als Nutzer app wurde nichts eingehängt. Nichts im Container startet mount (geprüft am Code und beim Import der Anwendung, nicht an laufenden Anfragen); der Python-Prozess lädt aus util-linux nur libuuid."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "util-linux"
+cves = ["CVE-2026-78409"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Der verwundbare Schnellpfad von X-mount.subdir kam erst mit util-linux 2.42 (Advisory: betroffen ab 2.42). Die installierte libmount 2.41.5 lehnt X-mount.subdir für Nicht-Root-Nutzer ab; die Meldung dazu steht in der Bibliothek, der Code des Schnellpfads nicht."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "util-linux"
+cves = ["CVE-2026-78408"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "Verwundbar ist nur das Programm nsenter mit der Option --join-cgroup, und nur wenn ein Aufrufer mit root-Rechten bzw. CAP_SYS_ADMIN es gegen ein vom Angreifer kontrolliertes Ziel startet. /usr/bin/nsenter liegt im Image (0755, nicht setuid), wird aber von nichts aufgerufen; als Nutzer app scheitert es am fehlenden Recht (geprüft). Wer vom Host aus nsenter gegen den Container richtet, benutzt das nsenter des Hosts."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "ncurses"
+cves = ["CVE-2025-69720"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "Der Überlauf steckt im Kommandozeilenprogramm infocmp (Aufruf „infocmp -i“ auf einen präparierten terminfo-Eintrag), nicht in den Bibliotheken; libncursesw6, libtinfo6 und ncurses-base sind nur wegen desselben Quellpakets gemeldet. infocmp ist nicht setuid und wird von nichts aufgerufen; der Python-Prozess lädt weder libtinfo noch libncursesw."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "systemd"
+cves = ["CVE-2026-16742"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücke liegt im Dienst systemd-homed. Aus dem Quellpaket systemd sind im Image nur die Bibliotheken libsystemd0 und libudev1 installiert; systemd-homed, homectl und pam_systemd_home.so fehlen, und im Container läuft kein systemd."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "acl"
+cves = ["CVE-2026-54369"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "Die Lücke betrifft die pfadbasierten Funktionen von libacl und setzt einen privilegierten Aufrufer voraus, der einen vom Angreifer beeinflussbaren Pfad verarbeitet. Im Image binden nur cp, mv, install, sed, tar, useradd und usermod libacl ein; keines ist setuid, keines wird im Betrieb aufgerufen, und der Python-Prozess lädt libacl nicht. Alle Prozesse laufen als Nutzer app ohne Capabilities."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "perl"
+cves = ["CVE-2026-9538"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Betroffen ist das Perl-Modul Archive::Tar; es gehört in Debian zum Paket perl-modules-5.40, das nicht installiert ist. Aus dem Quellpaket perl liegt im Image nur perl-base, eine Datei Archive/Tar.pm gibt es nicht."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "perl"
+cves = ["CVE-2026-82560"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Betroffen ist das Perl-Modul Pod::Text. Im Image liegt aus dem Quellpaket perl nur perl-base; eine Datei Pod/Text.pm gibt es nicht (geprüft)."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "xz-utils"
+cves = ["DSA-6549-1", "TEMP-1147318-639065"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "Die Lücke liegt in den Dekodierern für .lzma-, .lz- und MicroLZMA-Daten und setzt laut Hersteller voraus, dass ein Programm denselben Dekodierer nach einem Speicherfehler erneut initialisiert; .xz-Daten und Rohströme sind nicht betroffen. liblzma ist im Python-Prozess geladen, dekodiert wird damit aber nur, wenn Code LZMA-Daten öffnet (lzma, tarfile, shutil; zipfile nutzt Rohströme). Weder die Anwendung noch ein installiertes Paket außer pip tut das, und der HTTP-Client httpx kennt nur gzip, deflate, brotli und zstd; pip läuft im Betrieb nicht."
+massnahme = "Debian hat die Korrektur am 2026-10-07 veröffentlicht (liblzma5 5.8.1-1+deb13u2); das gepinnte Basis-Image ist einen Tag älter. Sie kommt mit dem nächsten Basis-Image oder mit einem Paket-Upgrade im Dockerfile (siehe „Mögliche Maßnahmen“)."
+stand = "2026-10-13"
+
+# ---------------------------------------------------------------------------
+# api — Bibliotheken, die pip in sich mitbringt (site-packages/pip/_vendor)
+# ---------------------------------------------------------------------------
+
+[[bewertung]]
+image = "api"
+paket = "msgpack"
+ort = "pip (mitgeliefert)"
+cves = ["GHSA-6v7p-g79w-8964"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücke liegt in der C-Erweiterung von msgpack. pip liefert unter pip/_vendor/msgpack nur die reine Python-Fassung mit; eine kompilierte Erweiterung gibt es im Image nicht."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "setuptools"
+ort = "pip (mitgeliefert)"
+cves = ["CVE-2025-47273"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücke liegt in setuptools/package_index.py. pip liefert aus setuptools 70.3.0 nur das Modul pkg_resources mit; package_index.py und das Paket setuptools selbst sind im Image nicht vorhanden."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "api"
+paket = "urllib3"
+ort = "pip (mitgeliefert)"
+cves = ["CVE-2026-97687", "CVE-2026-97689"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "urllib3 2.7.0 liegt nur als Kopie in pip/_vendor und wird nur von pip geladen. Im laufenden Container startet nichts pip: Entrypoint und Kommando rufen alembic und uvicorn auf, der Healthcheck nutzt urllib.request, kein installiertes Paket importiert pip, und „import urllib3“ findet kein Modul. pip selbst läuft mit dieser Kopie beim Bau des Image (mit --require-hashes) und in „make governance“; dort müsste ein Angreifer PyPI bzw. den Spiegel oder die TLS-Verbindung dorthin kontrollieren. Ob pip hinter einem HTTPS-Proxy von CVE-2026-97687 betroffen ist, ist nicht geprüft."
+massnahme = "Keine für den Betrieb. Ein pip mit urllib3 ab 2.8.0 gibt es am 2026-10-13 nicht; Basis-Image anheben, sobald es eines enthält."
+stand = "2026-10-13"
+
+# ---------------------------------------------------------------------------
+# nginx (Alpine 3.24). /usr/sbin/nginx bindet nur libpcre2-8, libssl, libcrypto und libz; die
+# Konfiguration lädt kein dynamisches Modul (kein load_module).
+# ---------------------------------------------------------------------------
+
+[[bewertung]]
+image = "nginx"
+paket = "expat"
+cves = ["CVE-2026-93990"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "libexpat wird im Image nur von libfontconfig geladen, diese nur von libgd, und libgd nur vom dynamischen Modul ngx_http_image_filter_module.so. Die Konfiguration lädt kein Modul, und kein Einstiegsskript ruft die fc-Hilfsprogramme auf — libexpat gelangt in keinen laufenden Prozess."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "nginx"
+paket = "pcre2"
+cves = ["CVE-2026-103111"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "Der Fehler liegt im JIT-Matching mit einem wachsenden JIT-Stack, den eine Anwendung über pcre2_jit_stack_create/-assign anlegt, und braucht ein vom Angreifer geliefertes Muster. /usr/sbin/nginx importiert keine dieser Funktionen; selbst mit „pcre_jit on“ liefe das Matching auf dem Standard-Stack, den das Advisory als nicht betroffen nennt. Muster stammen bei nginx nur aus der Konfiguration; die im Repo enthält weder pcre_jit noch einen regulären Ausdruck (der Wert von PUBLIC_HOST für server_name wurde nicht eingesehen)."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "nginx"
+paket = "tiff"
+cves = ["CVE-2026-4775"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "libtiff wird nur von libgd geladen und libgd nur vom dynamischen Modul ngx_http_image_filter_module.so; die Konfiguration lädt kein Modul (kein load_module, kein image_filter). nginx liefert hier statische Dateien aus und reicht Anfragen durch; Bilder werden nicht dekodiert."
+stand = "2026-10-13"
+
+# ---------------------------------------------------------------------------
+# postgres — alle Funde CRITICAL, HIGH und UNKNOWN liegen in gosu 1.19 (unverändertes Release-Binary, Go 1.24.6, ohne
+# cgo für Linux gebaut). gosu läuft einmal je Containerstart: Es liest Kommandozeile,
+# Umgebung, /etc/passwd und /etc/group, wechselt auf den Nutzer postgres und ersetzt sich per
+# exec. Sein Quelltext importiert os, os/exec, runtime, syscall, moby/sys/user und x/sys/unix;
+# geprüft sind die Funktionsnamen im Binary selbst.
+# ---------------------------------------------------------------------------
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2025-68121", "CVE-2026-32283", "CVE-2026-56862", "CVE-2026-97031"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücken liegen in crypto/tls (Sitzungswiederaufnahme, KeyUpdate in TLS 1.3, ECH) und setzen eine TLS-Verbindung voraus. Das gosu-Binary enthält crypto/tls nicht und öffnet keine Netzverbindung."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2025-61729", "CVE-2026-27145", "CVE-2026-32280", "CVE-2026-32281", "CVE-2026-33818"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücken liegen in crypto/x509 (Zertifikatsprüfung, Hostname-Abgleich, Kettenbau, Policy-Prüfung) und encoding/asn1. Das gosu-Binary enthält keines der beiden Pakete und verarbeitet weder Zertifikate noch ASN.1-Daten."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-33814", "CVE-2026-39821", "CVE-2026-56853", "CVE-2026-78667", "CVE-2026-78669"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücken liegen in net/http einschließlich HTTP/2 und der dort eingebundenen idna-Verarbeitung. Das gosu-Binary enthält weder net/http noch golang.org/x/net; es ist weder HTTP-Client noch HTTP-Server und lauscht auf keinem Port."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2025-61726", "CVE-2026-25679", "CVE-2026-56860"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücken liegen in net/url. Das gosu-Binary enthält net/url nicht und verarbeitet keine URLs; den Benutzernamen wertet moby/sys/user mit strings- und strconv-Funktionen aus."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-33811", "CVE-2026-39836"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Beide Lücken liegen im Paket net (LookupCNAME mit cgo-Resolver; Dial/LookupPort unter Windows). Das gosu-Binary enthält das Paket net nicht."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-39820", "CVE-2026-42499", "CVE-2026-42504"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücken liegen in net/mail und mime. Das gosu-Binary enthält keines der beiden Pakete; der Mailversand des Projekts läuft im api-Container in Python."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-56858", "CVE-2026-56859"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücken liegen in html/template und encoding/xml. Das gosu-Binary enthält keines der beiden Pakete; es rendert keine Templates und liest kein XML."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-39822"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücke betrifft os.Root, also das Öffnen von Dateien relativ zu einem abgeschotteten Verzeichnis. Das Paket os ist im gosu-Binary gelinkt, aber keine os.Root-Funktion ist enthalten; gosu öffnet /etc/passwd und /etc/group mit os.Open. Beide Dateien gehören root (0644), und gosu hat kein setuid-Bit."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "stdlib"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-78659", "CVE-2026-78660", "CVE-2026-94440", "CVE-2026-97030"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die vier Meldungen (noch ohne Einstufung) liegen laut Go-Schwachstellendatenbank in net/http (HTTP/2, Server und Client), in net/textproto und mime/multipart (Multipart-Formulare) und in html/template. Das gosu-Binary enthält keines dieser Pakete."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "golang.org/x/sys"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-39824"]
+status = "not_affected"
+warum = "vulnerable_code_not_present"
+begruendung = "Die Lücke liegt in NewNTUnicodeString, einer Funktion des Windows-Teils von golang.org/x/sys. Das Binary ist für Linux gebaut und enthält aus dem Modul nur golang.org/x/sys/unix."
+stand = "2026-10-13"
+
+[[bewertung]]
+image = "postgres"
+paket = "github.com/moby/sys/user"
+ort = "usr/local/bin/gosu"
+cves = ["CVE-2026-61801"]
+status = "not_affected"
+warum = "vulnerable_code_cannot_be_controlled_by_adversary"
+begruendung = "MEDIUM, hier eigens bewertet, weil es der einzige Fund in Code ist, den gosu bei jedem Start ausführt: Das Einlesen einer präparierten passwd- oder group-Datei kann den Prozess am Speicher scheitern lassen. Dazu müsste ein Angreifer die Datei liefern; gosu liest /etc/passwd und /etc/group des Image, beide gehören root (0644), und gosu läuft einmal beim Start, bevor der Datenbankprozess läuft."
+stand = "2026-10-13"
+
+# ---------------------------------------------------------------------------
+# keycloak (RHEL 9.8) — nur DEV und Pilot
+# ---------------------------------------------------------------------------
+
+[[bewertung]]
+image = "keycloak"
+paket = "pcre2"
+cves = ["CVE-2026-103111", "CVE-2026-86145", "CVE-2026-89161"]
+status = "not_affected"
+warum = "vulnerable_code_not_in_execute_path"
+begruendung = "libpcre2-8 wird im Image nur von libselinux und libpcre2-posix gebunden und darüber beim Start kurz in uname, readlink, dirname und sed geladen; die JVM, ihre eigenen Dateien und die Linux-Bibliotheken in den JARs binden sie nicht. Außer libpcre2-8 selbst enthält keine Datei des Image die Funktionen, in denen die drei Fehler liegen (JIT-Übersetzung und -Stack, pcre2_dfa_match); libselinux ruft nur pcre2_compile und pcre2_match auf, und zwar für SELinux-Regeldateien, die im Container fehlen. Geprüft an den Dateien, nicht an einem laufenden Keycloak."
+massnahme = "Red Hat hat die drei Lücken mit RHSA-2026:81532 (pcre2-10.40-7.el9_8) am 2026-10-12 behoben; die Datenbank des Scanners kannte das am Tag des Scans noch nicht. Digest in deploy/keycloak/Dockerfile anheben, sobald ein Keycloak-Image vorliegt, das dieses Paket laut Scan enthält; am 2026-10-13 gab es noch keines."
+stand = "2026-10-13"
+
+# ===========================================================================
+# Was der Scanner nicht sieht oder nicht meldet
+# ===========================================================================
+
+[[ohne_scan]]
+komponente = "Python (CPython), aus dem Quelltext gebaut"
+version = "3.14.8"
+version_aus = "api:PYTHON_VERSION"
+aussage = "3.14.8 vom 2026-09-30 ist die neueste Version der Reihe 3.14. Darin sind mindestens vier veröffentlichte Lücken offen: CVE-2026-87910 (tarfile) und CVE-2026-12345 (tempfile.TemporaryDirectory) — im 3.14-Zweig korrigiert, aber erst nach 3.14.8 —, CVE-2025-15367 (poplib) und CVE-2025-12781 (base64 mit eigenem Alphabet). Nicht betroffen: Im Betrieb lädt nichts tarfile oder poplib, und TemporaryDirectory wird nicht aufgerufen; bei base64 weist joserfc die fraglichen Zeichen selbst ab, und beim Sitzungs-Cookie ändert die Schreibweise den geprüften Inhalt nicht. Für die genutzten Teile der Standardbibliothek (email, json, http.cookies, urllib.parse, ssl) ist sonst keine offene Meldung bekannt."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "libexpat, fest in Python eingebaut"
+version = "2.8.5"
+version_aus = "api:EXPAT_VERSION"
+aussage = "Offen sind CVE-2026-77214 und CVE-2026-102633 (nur 32 Bit) — beide in Expat 2.9.0 vom 2026-10-05 behoben — sowie CVE-2025-66382 (Rechenzeit, in keiner Expat-Version behoben); das Expat-Projekt führt daneben weitere, nicht öffentliche Meldungen. Nicht betroffen, solange die Anwendung kein XML verarbeitet: Weder sie noch ein installiertes Paket außer pip lädt pyexpat."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "mpdecimal und HACL*, fest in Python eingebaut"
+version = "2.5.1"
+version_aus = "api:MPDEC_VERSION"
+aussage = "Nicht auf veröffentlichte Meldungen geprüft (Versionsangabe: mpdecimal)."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "PostgreSQL, aus dem Quelltext gebaut"
+version = "18.6"
+version_aus = "postgres:PG_VERSION"
+aussage = "18.6 vom 2026-08-13 ist die aktuelle Minor-Version der Reihe 18 und behebt 28 CVE. Die Sicherheitsseite von postgresql.org nennt für die Reihe 18 keine Lücke, die erst nach 18.6 behoben oder noch offen ist; der nächste planmäßige Termin ist der 2026-11-12."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "NGINX (Paket von nginx.org)"
+version = "1.30.5"
+version_aus = "nginx:NGINX_VERSION"
+aussage = "Der Scanner gleicht das Paket gegen die Datenbank von Alpine ab, obwohl es von nginx.org stammt; deshalb die Gegenprobe beim Hersteller: nginx.org führt 63 Sicherheitsmeldungen, 62 nennen einen verwundbaren Bereich, in dem 1.30.5 nicht liegt. Die Ausnahme ist CVE-2009-4487 (Steuerzeichen im Fehlerlog, vom Hersteller ohne Schweregrad und für alle Versionen geführt). 1.30.5 ist die aktuelle stabile Version."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "OpenSSL in den Images nginx und postgres (Alpine-Paket)"
+version = "3.5.8-r0"
+version_aus = "sbom:nginx:libssl3"
+offen = true
+aussage = "Der Hersteller hat am 2026-09-29 mit 3.5.9 dreizehn Lücken behoben (eine hoch eingestuft: CVE-2026-84782, DTLS; zwölf niedrig). Alpine bietet 3.5.9-r0 an, führt dazu aber noch keine Sicherheitsmeldung — der Scan zeigt deshalb nichts, und die gepinnten Basis-Images enthalten die Korrektur nicht. NGINX beendet in PROD und im Pilot die TLS-Verbindungen mit dieser Bibliothek; DTLS und QUIC nutzt die Konfiguration nicht. PostgreSQL bietet laut Voreinstellung des Image kein TLS an. Welche der zwölf übrigen hier greifen, ist nicht bewertet (siehe „Mögliche Maßnahmen“). Zum Vergleich: Das OpenSSL im api-Image ist ein Debian-Paket (3.5.7 mit zurückportierten Korrekturen), das der Scanner bewertet."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "OpenSSL in cryptography"
+version = "4.0.3"
+version_aus = "paket:cryptography:openssl"
+aussage = "4.0.3 vom 2026-09-29 ist die neueste Patchversion der Linie 4.0; die Liste des Herstellers nennt keine Meldung, die sie betrifft. Die Anwendung nutzt diese Kopie für das Sitzungs-Cookie und die Signaturprüfung der ID-Tokens; TLS-Verbindungen laufen über das OpenSSL von Debian."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "psycopg-binary: libpq 18.6, OpenSSL 3.5.8, OpenLDAP 2.6.14, libcrypt (stehen in keiner Stückliste)"
+version = "3.3.6"
+version_aus = "paket:psycopg-binary"
+aussage = "libpq 18.6 ist aktuell. OpenSSL 3.5.8 liegt eine Patchversion hinter 3.5.9 (dreizehn Meldungen, siehe oben); zwölf betreffen Funktionen, die libpq nicht nutzt, die dreizehnte (CVE-2026-35189, niedrig) setzt einen TLS-Handshake voraus. Der eigene Datenbank-Container bietet laut Voreinstellung des Image kein TLS an (am laufenden Server nicht nachgesehen); eine Gegenstelle, die sich im Docker-Netz als postgres ausgibt, könnte es. OpenLDAP 2.6.14 wird geladen, aber nur mit einer Service-Datei benutzt, die es im Image nicht gibt. Ein neueres psycopg-binary gibt es nicht."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "psycopg-binary: Bibliotheken aus CentOS 7 (Kerberos 1.15.1, Cyrus SASL 2.1.26, PCRE 8.32, libselinux 2.5 u. a.)"
+version = "3.3.6"
+version_aus = "paket:psycopg-binary"
+aussage = "Die Pakete stehen in der Stückliste des Wheels; der Scanner hat sie erhalten und meldet dazu nichts, obwohl CentOS 7 seit 2024-06-30 keine Korrekturen mehr erhält und Red Hat für diese Stände offene Lücken führt (für die Client-Bibliotheken von Kerberos etwa CVE-2024-37370/-37371). Die Dateien werden beim Import von psycopg in den Prozess geladen (libselinux führt dabei eigenen Startcode aus); Eingaben von außen erreichen sie auf dem Weg der Anwendung (TCP, SCRAM-Passwort, eigene Datenbank) nicht — psycopg baut seine libpq mit gssencmode=disable. Erreichbar würden sie, wenn die Gegenstelle eine andere Anmeldemethode verlangte; das schließt require_auth in der DATABASE_URL aus (siehe „Mögliche Maßnahmen“)."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "uvloop: libuv 1.52.1"
+version = "0.23.0"
+version_aus = "paket:uvloop"
+aussage = "uvloop 0.23.0 ist die neueste Version und enthält libuv 1.52.1, eine Version hinter 1.53.0 (2026-09-24, ohne genannte CVE). Die bekannten CVE zu libuv betreffen nach ihren Beschreibungen ältere Versionen, Windows oder 32-Bit-Bauten (nicht je CVE gegen 1.52.1 geprüft). Alle Verbindungen der Anwendung laufen über diese Kopie."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "httptools: llhttp 9.4.3, http-parser 2.9.4"
+version = "0.9.0"
+version_aus = "paket:httptools"
+aussage = "httptools 0.9.0 ist die neueste Version und enthält laut Quellpaket llhttp 9.4.3, die neueste llhttp-Version; für beide ist keine offene Meldung verzeichnet. Zusätzlich liegt http-parser 2.9.4 bei (nur für die Zerlegung von URLs, Quelle seit 2022 archiviert); bekannte Schwächen dieses Stands sind nicht recherchiert. uvicorn parst damit jede Anfrage; Anfragen erreichen den Container nur über NGINX."
+stand = "2026-10-13"
+
+[[ohne_scan]]
+komponente = "Weitere fest eingebaute Bibliotheken: libyaml (PyYAML), libffi (cffi), QuickJS und Rust-Bibliotheken in ungeladenen NGINX-Modulen"
+version = "–"
+aussage = "Nicht geprüft. PyYAML wird beim Start der Anwendung nicht geladen, cffi mit libffi dagegen schon; die NGINX-Module njs und acme lädt die Konfiguration nicht."
+stand = "2026-10-13"
+
+# ===========================================================================
+# Mögliche Maßnahmen — Reihenfolge: Wirkung im Verhältnis zum Aufwand. Gebaut, nachgemessen
+# oder gegen einen Server erprobt ist davon nichts; der Bericht sagt das über der Tabelle.
+# ===========================================================================
+
+[[massnahme]]
+titel = "Pakete der Alpine-Images beim Bau nachziehen (`apk upgrade` in den Dockerfiles von nginx und postgres)"
+wirkung = "Hebt OpenSSL auf 3.5.9 (dreizehn Lücken, die der Scan nicht zeigt) und behebt die drei HIGH-Funde im nginx-Image sowie dessen MEDIUM-Funde. Für das nginx-Basis-Image sind die Pakete am 2026-10-13 als Aktualisierung verfügbar, für postgres ist das nicht nachgesehen. Die Pakete von nginx.org bleiben unberührt."
+aufwand = "Klein im Code. Kehrseite: Derselbe Git-Stand ergibt je nach Bautag andere Paketstände — die Digest-Pins (ADR-0026) legen dann nur noch das Basis-Image fest; dazu eine neue Verbindung beim Bau (Paketquellen von Alpine). Alternative ohne diese Kehrseite: warten, bis das Basis-Image neu gebaut ist, und den Digest anheben."
+
+[[massnahme]]
+titel = "NGINX auf das schlanke Basis-Image wechseln (`nginx:stable-alpine-slim`)"
+wirkung = "Entfernt 50 von 71 Paketen, darunter die ungenutzten Module samt libexpat und tiff (zwei der drei HIGH-Funde) — ohne Paketmanager beim Bau, die Digest-Pins bleiben wirksam. OpenSSL bleibt dabei auf dem Stand des Basis-Image."
+aufwand = "Klein: FROM-Zeile in beiden NGINX-Dockerfiles, Konfiguration im Container prüfen."
+
+[[massnahme]]
+titel = "liblzma5 im api-Image nachziehen (`apt-get update && apt-get install -y --only-upgrade liblzma5` im Dockerfile)"
+wirkung = "Sollte DSA-6549-1 beheben: Die korrigierte Version liegt seit 2026-10-07 in den Sicherheitsquellen von Debian. Sonst mit dem nächsten Basis-Image."
+aufwand = "Klein. Dieselbe Kehrseite wie beim Nachziehen der Alpine-Pakete (Paketquellen von Debian beim Bau, kein fester Stand); die Zeile kann entfallen, sobald das Basis-Image die Korrektur enthält."
+
+[[massnahme]]
+titel = "Anmeldeweg zur Datenbank festlegen: `require_auth=scram-sha-256` und `gssencmode=disable` in der DATABASE_URL"
+wirkung = "libpq lehnt laut Dokumentation jede andere Anmeldemethode ab, auch von einer gefälschten Gegenstelle; der Kerberos-Code der CentOS-7-Bibliotheken in psycopg-binary wäre dann nicht mehr erreichbar."
+aufwand = "Etwa 0,25 PT: `.env.example`, README/RUNBOOK, Probe gegen den Server. `sslmode=disable` schlösse zusätzlich den TLS-Code der mitgelieferten OpenSSL-Kopie aus — eine Entscheidung, weil ein späteres TLS am Server dann ohne Wirkung bliebe."
+
+[[massnahme]]
+titel = "gosu aus dem postgres-Image entfernen und den Container als Nutzer postgres starten"
+wirkung = "Der Scan sollte danach keinen der 60 gosu-Funde mehr melden, und der Container startet nicht mehr als root."
+aufwand = "Etwa 0,5 PT: zwei Zeilen im Dockerfile, Start auf frischem und auf bestehendem Volume testen. Die Datei bleibt in der Basisschicht des Image enthalten."
+
+[[massnahme]]
+titel = "Dienst api härten: `security_opt: [\"no-new-privileges:true\"]` und `cap_drop: [\"ALL\"]` in compose.yaml"
+wirkung = "Die setuid-Programme im Image (mount, su, passwd …) verlieren ihre Wirkung; damit entfällt die Voraussetzung der mount-Lücken unabhängig vom Inhalt der fstab, auch für künftige Lücken dieser Art. Die Funde bleiben im Scan stehen."
+aufwand = "Klein: zwei Einträge, Integrationstest."
+
+[[massnahme]]
+titel = "psycopg-binary durch die libpq des Betriebssystems ersetzen (`psycopg` ohne Extra plus Debian-Paket libpq5, oder `psycopg[c]`)"
+wirkung = "Die mitgelieferten Bibliotheken entfallen, darunter die sechs CentOS-7-Pakete und OpenSSL 3.5.8; libpq und ihre Abhängigkeiten kämen dann als Debian-Pakete, die der Scanner sieht und Debian pflegt."
+aufwand = "Mittel (0,5–1,5 PT): Dockerfile, Lockfile, Tests. Kehrseiten: `psycopg` ohne Extra ist die reine Python-Fassung und laut psycopg-Dokumentation deutlich langsamer (Versanddurchsatz messen); `psycopg[c]` braucht beim Bau Compiler und libpq-dev. libpq käme als 17.x per apt aus Debian (Paketquellen beim Bau, kein fester Stand) und mit eigenen Scanner-Funden; ihre Vorgabe ist gssencmode=prefer — in der DATABASE_URL abschalten."
+
+[[massnahme]]
+titel = "pip aus dem Laufzeit-Image entfernen"
+wirkung = "Nimmt die Funde unter „pip (mitgeliefert)“ aus dem Bericht. Der Code bleibt als Wheel für ensurepip im Image und läuft weiter in „make governance“; wirksam ist die Maßnahme erst, wenn auch das Wheel entfällt und das Werkzeug der Stückliste aus einem eigenen Image läuft."
+aufwand = "Klein für den ersten Teil, etwa 1 PT für den zweiten. Im Betrieb wird pip in keinem Fall ausgeführt."
+
+[[massnahme]]
+titel = "Nachziehen, sobald neue Stände vorliegen: Keycloak-Image mit der pcre2-Korrektur, python:3.14.9-slim (geplant 2026-12-01), psycopg-binary mit OpenSSL ab 3.5.9"
+wirkung = "Erwartet: Die Keycloak-Funde entfallen; von den vier in Python 3.14.8 offenen Lücken die beiden, die im 3.14-Zweig schon korrigiert sind (tarfile, tempfile) — poplib und base64 bleiben; der Rückstand der OpenSSL-Kopie in psycopg-binary schließt sich."
+aufwand = "Je Fall klein: Digest bzw. Pin anheben, `make check`, `make governance`. Wer das wie oft tut, ist offen (Frage B10)."

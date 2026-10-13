@@ -3,19 +3,30 @@
 SHELL := /bin/sh
 
 COMPOSE_DEV  := docker compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml
-COMPOSE_PLOC := docker compose -f compose.yaml -f compose.db.yaml -f compose.prod.yaml
-COMPOSE_PROD := docker compose -f compose.yaml -f compose.prod.yaml
+# PROD immer mit DB-Overlay: PostgreSQL läuft als Container auf derselben VM (ADR-0030).
+COMPOSE_PROD := docker compose -f compose.yaml -f compose.db.yaml -f compose.prod.yaml
 GIT_SHA      := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BASE_URL     ?= http://localhost:8080
+# Ohne node_modules scheitert npm mit „playwright: command not found“ — die Ursache nennen.
+FRONTEND_READY = test -d frontend/tests/node_modules || \
+	{ echo "Frontend-Testwerkzeug fehlt - erst: make install-frontend"; exit 1; }
 
-.PHONY: help install dev dev-down ps logs prod-localdb prod lint format \
-        test test-db test-db-down test-integration seed smoke scan check
+.PHONY: help install install-frontend install-frontend-browser dev dev-down ps logs \
+        prod prod-localdb lint format test test-frontend test-db test-db-down \
+        test-integration seed smoke scan governance check
 
 help: ## Targets anzeigen
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
 
 install: ## Lokale Dev-Abhängigkeiten (pytest, ruff, ...)
 	pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+install-frontend: ## Frontend-Testwerkzeug exakt aus dem Lockfile (Node >= 22, kein Browser-Download)
+	cd frontend/tests && npm ci
+
+install-frontend-browser: ## Ohne Edge/Chrome (CI): Chromium zur gepinnten Playwright-Version; Tests dann mit FRONTEND_BROWSER=chromium-headless-shell
+	@$(FRONTEND_READY)
+	cd frontend/tests && npm run install-browser
 
 dev: ## DEV-Stack starten (nginx, api, postgres, keycloak, mailpit)
 	$(COMPOSE_DEV) up -d --build --wait
@@ -29,16 +40,17 @@ ps: ## Container-Status
 logs: ## Logs folgen (SERVICE=api eingrenzbar)
 	$(COMPOSE_DEV) logs -f $(SERVICE)
 
-prod-localdb: ## Go-Live-Zustand: PROD mit lokaler Docker-DB (Plan 3.2)
-	GIT_SHA=$(GIT_SHA) $(COMPOSE_PLOC) up -d --build --wait
-
-prod: ## PROD nach DB-Cutover (externe DB, ohne DB-Overlay)
+prod: ## PROD-Stack starten (nginx, api, postgres)
 	GIT_SHA=$(GIT_SHA) $(COMPOSE_PROD) up -d --build --wait
 
-lint: ## Ruff (Lint + Formatprüfung) und mypy
+prod-localdb: prod ## Zweiter Name für prod (früherer Aufruf, bleibt gültig)
+
+lint: ## Ruff (Lint + Formatprüfung) und mypy — Backend und der Generator der Governance-Unterlagen
 	ruff check backend
 	ruff format --check backend
-	mypy backend/app
+	ruff check --config backend/pyproject.toml ops/governance.py
+	ruff format --check --config backend/pyproject.toml ops/governance.py
+	mypy --config-file backend/pyproject.toml backend/app ops/governance.py
 
 format: ## Autoformat + Autofix
 	ruff format backend
@@ -46,6 +58,10 @@ format: ## Autoformat + Autofix
 
 test: ## Unit-Tests: ohne Docker/DB/Netz, < 30 s (Plan 8.1)
 	cd backend && python -m pytest tests/unit -q
+
+test-frontend: ## Frontend-Verhaltenstests im Browser (Edge/Chrome), ohne Server/Docker/Netz
+	@$(FRONTEND_READY)
+	cd frontend/tests && npm test
 
 test-db: ## API-Tests gegen PostgreSQL-tmpfs (startet postgres-test)
 	$(COMPOSE_DEV) --profile test up -d --wait postgres-test
@@ -67,5 +83,10 @@ smoke: ## Smoke-Test nach Deploy (BASE_URL=https://... setzbar)
 scan: ## Trivy-CVE-Scan der Images (Release-Gate, Plan 9.7)
 	trivy image --severity HIGH,CRITICAL --exit-code 1 stoerungsinfo-api:$${IMAGE_TAG:-local}
 	trivy image --severity HIGH,CRITICAL --exit-code 1 stoerungsinfo-nginx:$${IMAGE_TAG:-local}
+	trivy image --severity HIGH,CRITICAL --exit-code 1 stoerungsinfo-postgres:$${IMAGE_TAG:-local}
 
-check: lint test test-db ## CI-Mindeststandard (Plan 8.6)
+governance: ## Stücklisten und Schwachstellenbericht neu erzeugen (docs/governance, braucht Netz)
+	IMAGE_TAG=local $(COMPOSE_DEV) build
+	python ops/governance.py erzeuge
+
+check: lint test test-frontend test-db ## CI-Mindeststandard (Plan 8.6)
