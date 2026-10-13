@@ -38,9 +38,10 @@ server {
     # Matrix-Parameter aber beim Routing, sodass die Admin-REST-API offen war.
     # '^~' hat Vorrang vor Regex-Locations und matcht auch solche Suffixe.
 
-    # Registrierung und Passwort-Reset: Hier löst jeder Aufruf eine Mail über das
-    # konfigurierte Postfach aus — streng drosseln, sonst ist der Dienst ein
-    # Mailversender für Fremde und das Tageskontingent schnell verbraucht.
+    # Registrierung und Passwort-Reset: Der Reset löst je Aufruf eine Mail über das
+    # konfigurierte Postfach aus (die Registrierung nur mit Bestätigungsmail) — streng
+    # drosseln, sonst ist der Dienst ein Mailversender für Fremde und das Tageskontingent
+    # schnell verbraucht.
     location ^~ /idp/realms/dev/login-actions/registration {
         limit_req zone=idp_mail burst=5 nodelay;
         include /etc/nginx/includes/idp-proxy.inc;
@@ -95,7 +96,9 @@ server {
     location = /openapi.json { return 404; }
 
     # /api/, /auth/, /healthz, /readyz und die Statik kommen aus der gemeinsamen
-    # Datei (identisch mit DEV). Eine Drossel braucht /auth/ nicht: Dort entstehen
-    # nur Redirects — Mails verschickt Keycloak über die oben gedrosselten Pfade.
+    # Datei (identisch mit DEV). /auth/ hat keine eigene Drossel: Mails verschickt
+    # Keycloak nur über die oben gedrosselten Pfade. Ein /auth/callback mit gültigem
+    # State löst allerdings je Aufruf einen Token-Abruf des Backends bei Keycloak aus
+    # (intern, an idp_read vorbei) — dafür gilt nur das Verbindungslimit pro IP.
     include /etc/nginx/includes/app-locations.inc;
 }

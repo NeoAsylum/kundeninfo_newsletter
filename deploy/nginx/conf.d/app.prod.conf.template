@@ -12,7 +12,9 @@ server {
     ssl_certificate_key /etc/nginx/tls/server.key;
     # Der Container-Healthcheck spricht 127.0.0.1 an und trägt keinen bekannten Host.
     location = /nginx-health { access_log off; return 200 "ok\n"; }
-    return 421;
+    # In einer Location, nicht auf Serverebene: Ein „return“ dort greift vor jeder Location,
+    # der Health-Stub wäre unerreichbar und der Container dauerhaft „unhealthy“.
+    location / { return 421; }
 }
 
 server {

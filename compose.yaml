@@ -24,6 +24,7 @@ services:
       context: backend
       args:
         APP_VERSION: ${IMAGE_TAG:-local}
+        GIT_SHA: ${GIT_SHA:-unknown}
     image: stoerungsinfo-api:${IMAGE_TAG:-local}
     env_file: .env
     networks: [appnet]

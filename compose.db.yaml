@@ -1,13 +1,24 @@
-# DB-Overlay: lokaler PostgreSQL-Container mit persistentem Volume.
-# DEV: immer. PROD: bis zum Cutover auf die externe Konzern-DB (Plan 3.1/9.4) —
-# danach entfällt dieses Overlay (make prod statt make prod-localdb).
+# DB-Overlay: PostgreSQL-Container mit persistentem Volume.
+# Gehört in jeder Umgebung dazu — DEV, öffentlicher Pilot und PROD (ADR-0030):
+# Die Datenbank läuft auf derselben Maschine wie die Anwendung.
 services:
   postgres:
-    # Eigenes Image: postgres:16-alpine + Init-Skript (App-Rolle ohne Superuser,
+    # Eigenes Image: postgres:18-alpine + Init-Skript (App-Rolle ohne Superuser,
     # optional Keycloak-DB). Gebacken statt Bind-Mount (R10).
     build:
       context: ./deploy/postgres
     image: stoerungsinfo-postgres:${IMAGE_TAG:-local}
+    # ADR-0014 gilt auch für das Log dieses Containers: Ohne die beiden Angaben nennt die
+    # DETAIL-Zeile eines Unique-Verstoßes die Adresse („Key (email)=(…) already exists“),
+    # und die STATEMENT-Zeile wiederholt fehlgeschlagenes SQL samt seinen Literalen. Der
+    # Client erhält die vollständige Fehlermeldung weiterhin. Ein Overlay mit eigener
+    # command-Liste ersetzt diese und muss beide Angaben wiederholen (compose.public.yaml).
+    command:
+      - postgres
+      - -c
+      - log_error_verbosity=terse
+      - -c
+      - log_min_error_statement=panic
     environment:
       POSTGRES_DB: ${DB_NAME:-newsletter}
       POSTGRES_USER: postgres
@@ -16,8 +27,12 @@ services:
       APP_DB_USER: ${DB_USER:-app}
       APP_DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD fehlt in .env}
       KC_DB_PASSWORD: ${KC_DB_PASSWORD:-}
+    # Ab PostgreSQL 18 gehört das Volume nach /var/lib/postgresql; das Datenverzeichnis ist
+    # darin 18/docker. Das Volume heißt nicht mehr db_data: Jenes hält den Bestand von
+    # PostgreSQL 16, den 18 nicht lesen kann — er wird nicht migriert, sondern per Dump
+    # umgezogen, und bleibt als Rückweg liegen (deploy/vm/pg-umzug.sh, RUNBOOK 2).
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql
     networks: [appnet]
     restart: unless-stopped
     # Bewusst KEIN Host-Port-Mapping: DB ist nur im Compose-Netz erreichbar.
@@ -34,4 +49,4 @@ services:
         condition: service_healthy
 
 volumes:
-  db_data:
+  pg_data:

@@ -23,16 +23,24 @@ services:
       - "8081:8081"
     networks: [appnet]
     healthcheck:
-      # Keycloak >= 25: /health/ready liegt auf Management-Port 9000; das Image
-      # hat kein curl/wget → TCP-Connect auf den Management-Port als Ready-Signal.
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000"]
+      # /health/ready liegt auf dem Management-Port 9000. Seit Keycloak 26.6 ist der Port
+      # schon offen, während Datenbank-Migration und Realm-Import noch laufen — bereit ist
+      # der Server erst, wenn der Endpunkt 200 antwortet (vorher 503). Das Image hat weder
+      # curl noch wget, deshalb die Anfrage über /dev/tcp der Shell.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000
+          && printf 'HEAD /health/ready HTTP/1.0\r\n\r\n' >&3
+          && read -r _ status _ <&3
+          && [ "$$status" = 200 ]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 60s
 
   mailpit:
-    image: axllent/mailpit:v1.27@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+    image: axllent/mailpit:v1.31.5@sha256:94f6b70c1436defae6799d9ac7ff0eeff9540465b842026d5cdb018f1c0234ea
     networks: [appnet]
     ports:
       - "8025:8025"   # Web-UI + REST-API (Test-Assertions)
@@ -46,16 +54,17 @@ services:
   # Wegwerf-DB für API-Tests (make test-db): tmpfs, kein Volume, eigener Port.
   # Läuft nur mit --profile test, nie im normalen Stack.
   postgres-test:
-    image: postgres:16-alpine
+    # Derselbe Stand wie deploy/postgres/Dockerfile (ein Test hält beide zusammen)
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     profiles: ["test"]
     environment:
       POSTGRES_DB: newsletter_test
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: test
-      # Unterverzeichnis, damit der tmpfs-Mountpunkt (root) nicht das PGDATA selbst ist.
-      PGDATA: /var/lib/postgresql/data/pgdata
+    # Dort erwartet das Image ab PostgreSQL 18 sein Volume; das Datenverzeichnis ist das
+    # Unterverzeichnis 18/docker.
     tmpfs:
-      - /var/lib/postgresql/data
+      - /var/lib/postgresql
     ports:
       - "3307:5432"
     networks: [appnet]

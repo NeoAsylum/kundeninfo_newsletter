@@ -60,8 +60,8 @@ services:
     # aus compose.yaml beim Zusammenführen nicht, und `env_file: []` hängt nur an —
     # ohne !reset bekäme der Container die Aufzählung unten PLUS die komplette .env,
     # und die Begründung darüber wäre unwahr (nachgemessen: DB_ROOT_PASSWORD war
-    # gesetzt, mit !reset sind es 39 → 31 Variablen). Die Liste ist vollständig:
-    # Settings lädt mit genau diesen Variablen (31 Felder, gegengeprüft).
+    # gesetzt, mit !reset nur noch die Aufzählung). Die Liste ist vollständig: je
+    # Settings-Feld eine Variable — tests/unit/test_config.py prüft das.
     env_file: !reset null
     environment:
       APP_ENV: ${APP_ENV}
@@ -73,6 +73,7 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       OIDC_EMAIL_CLAIM: ${OIDC_EMAIL_CLAIM:-email}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid email}
       ADMIN_BOOTSTRAP_EMAILS: ${ADMIN_BOOTSTRAP_EMAILS:-}
       SESSION_SECRET: ${SESSION_SECRET}
       SESSION_MAX_AGE: ${SESSION_MAX_AGE:-28800}
@@ -86,6 +87,7 @@ services:
       MAIL_FROM_NAME: ${MAIL_FROM_NAME}
       MAIL_REDIRECT_TO: ${MAIL_REDIRECT_TO:-}
       SMTP_MAX_PER_MINUTE: ${SMTP_MAX_PER_MINUTE:-30}
+      SMTP_MAX_PER_DAY: ${SMTP_MAX_PER_DAY:-0}
       SMTP_BATCH_SIZE: ${SMTP_BATCH_SIZE:-50}
       SMTP_TIMEOUT_S: ${SMTP_TIMEOUT_S:-30}
       WORKER_ENABLED: ${WORKER_ENABLED:-true}
@@ -100,6 +102,8 @@ services:
   postgres:
     # Kleine VM: shared_buffers begrenzen, max_connections niedrig — ein api-Prozess
     # plus Keycloak-Pool brauchen keine 100.
+    # Diese Liste ersetzt die aus compose.db.yaml — die beiden log_-Angaben von dort
+    # (ADR-0014) stehen deshalb hier noch einmal.
     command:
       - postgres
       - -c
@@ -108,6 +112,10 @@ services:
       - max_connections=30
       - -c
       - effective_cache_size=192MB
+      - -c
+      - log_error_verbosity=terse
+      - -c
+      - log_min_error_statement=panic
     mem_limit: 288m
     logging: *logrotate
 
@@ -126,8 +134,9 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       # Eigenes Konto, nicht das der Anwendung: Eine Lücke im api-Container soll
-      # nicht bis an Keycloaks Passwort-Hashes reichen (deploy/vm/deploy.sh legt
-      # den Benutzer an und entzieht dem App-Konto die Rechte auf 'keycloak').
+      # nicht bis an Keycloaks Passwort-Hashes reichen (das Init-Skript des
+      # Postgres-Image legt den Benutzer an und entzieht dem App-Konto die Rechte
+      # auf 'keycloak'; deploy/vm/deploy.sh erzeugt nur das Passwort).
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD fehlt (deploy.sh erzeugt es)}
       # Öffentliche Adresse; NGINX reicht /idp durch (relative path)
@@ -149,9 +158,17 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # Keycloak >= 25: /health/ready liegt auf Management-Port 9000; das Image
-      # hat kein curl/wget → TCP-Connect als Ready-Signal.
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000"]
+      # /idp/health/ready (KC_HTTP_RELATIVE_PATH gilt auch dort) liegt auf dem Management-Port 9000. Seit Keycloak 26.6 ist der Port
+      # schon offen, während Datenbank-Migration und Realm-Import noch laufen — bereit ist
+      # der Server erst, wenn der Endpunkt 200 antwortet (vorher 503). Das Image hat weder
+      # curl noch wget, deshalb die Anfrage über /dev/tcp der Shell.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000
+          && printf 'HEAD /idp/health/ready HTTP/1.0\r\n\r\n' >&3
+          && read -r _ status _ <&3
+          && [ "$$status" = 200 ]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -164,7 +181,7 @@ services:
   # Nachladen nicht auslösen, das Zertifikat wäre nach 90 Tagen abgelaufen und der
   # Dienst offline.
   certbot:
-    image: certbot/certbot:v5.1.0
+    image: certbot/certbot:v5.8.0@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20
     profiles: ["certbot"]
     volumes:
       - certbot_conf:/etc/letsencrypt

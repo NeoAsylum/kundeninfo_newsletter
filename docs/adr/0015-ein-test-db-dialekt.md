@@ -19,3 +19,7 @@ Seit ADR-0027 ist dieser Dialekt **PostgreSQL** (`postgres-test`, `postgres:16-a
 
 * **SQLite parallel:** zwei dauerhaft kompatibel zu haltende Dialekte = zwei Mechanismen für ein Ziel (Leitplanke 1).
 * **testcontainers-python:** Image-Pull-Magie hinter Konzern-Proxy, ohne Mehrwert gegenüber Compose.
+
+## Nachtrag (2026-10-12)
+
+Die Test-DB `postgres-test` läuft auf `postgres:18-alpine` — demselben, per Digest gepinnten Stand wie `deploy/postgres/Dockerfile` (ein Test hält beide zusammen). Die Entscheidung dieses ADR gilt unverändert.

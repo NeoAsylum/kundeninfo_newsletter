@@ -27,3 +27,11 @@
 * **asyncpg:** schnell, aber kein synchroner Zwilling für Alembic → wieder zwei Treiber und URL-Rewriting; die abweichenden `connect_args`/Typen-Adapter bringen ohne Lastbedarf keinen Mehrwert.
 * **Bei MariaDB bleiben:** widerspricht der Auftraggeber-Entscheidung.
 * **Keycloak weiter auf eigener Engine (z. B. H2/MariaDB), nur die App auf Postgres:** zwei DB-Technologien im selben Stack ohne Not — die getrennte `keycloak`-Rolle in derselben Postgres-Instanz erfüllt die Isolationsanforderung einfacher.
+
+## Nachtrag (2026-10-07)
+
+Der Vorbehalt oben, die Demo-VM bleibe vorerst auf MariaDB, ist überholt: Der Auftraggeber bestätigt PostgreSQL als Datenbank des Projekts. Nachgemessen hat diese Änderung den Stand der VM nicht. Für ein `db_data`-Volume aus der MariaDB-Zeit gilt weiter der dort genannte Weg (frischer Start oder Dump-Migration). Auch der Vorbehalt zur externen Konzern-DB (Frage B3) entfällt: Die Datenbank bleibt in PROD ein Container auf der VM der Anwendung ([ADR-0030](0030-postgresql-im-container-auch-in-prod.md)).
+
+## Nachtrag (2026-10-12)
+
+PostgreSQL **18** statt 16 (Entscheidung des Auftraggebers im Zuge des Anhebens aller Abhängigkeiten): `deploy/postgres/Dockerfile` und die Test-DB bauen auf `postgres:18-alpine` (18.6), per Digest gepinnt. Ab 18 liegt das Datenverzeichnis des Images unter `/var/lib/postgresql/18/docker`, das Volume gehört nach `/var/lib/postgresql` und heißt jetzt `pg_data`. Ein Bestand aus PostgreSQL 16 (Volume `db_data`) zieht per Dump und Restore um — `deploy/vm/pg-umzug.sh`, Ablauf und Rückweg in RUNBOOK 2. Ein Volume, das noch aus der MariaDB-Zeit stammt, erkennt das Skript und bricht ab; dafür gilt weiter der Weg von oben. Treiber, Schema und Migrationen bleiben unverändert; an den Versionshinweisen von 17 und 18 gemessen betrifft keine Inkompatibilität dieses Schema. Keycloak unterstützt PostgreSQL 18 ab 26.5 (im Einsatz: 26.8).

@@ -11,6 +11,10 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-/opt/stoerungsinfo}"
 TARGET="$REPO_DIR/deploy/nginx/includes/cloudflare-real-ip.inc"
 cd "$REPO_DIR"
+# Unten startet „up nginx“ über dessen Abhängigkeiten auch api und postgres (RUNBOOK 2).
+# shellcheck source=deploy/vm/pg-umzug-sperre.sh
+. "$REPO_DIR/deploy/vm/pg-umzug-sperre.sh"
+pg_umzug_sperre || exit 1
 
 V4="$(curl -fsS --max-time 20 https://www.cloudflare.com/ips-v4)"
 V6="$(curl -fsS --max-time 20 https://www.cloudflare.com/ips-v6)"
@@ -35,8 +39,7 @@ if cmp -s "$TARGET.new" "$TARGET" 2>/dev/null; then
 else
     mv "$TARGET.new" "$TARGET"
     echo "Bereichsliste aktualisiert: $TARGET"
-    docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml \
-        up -d --build nginx
+    docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml up -d --build nginx
     echo "NGINX neu gestartet"
 fi
 

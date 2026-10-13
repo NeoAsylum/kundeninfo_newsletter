@@ -23,6 +23,9 @@ set -a; . ./.env; set +a
 
 case "$ACTION" in
     start)
+        # shellcheck source=deploy/vm/pg-umzug-sperre.sh
+        . "$REPO_DIR/deploy/vm/pg-umzug-sperre.sh"
+        pg_umzug_sperre || exit 1
         echo "=== Stack starten"
         $COMPOSE up -d --wait 2>&1 | tail -3 || true
 

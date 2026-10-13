@@ -16,3 +16,7 @@ Das Schema entsteht **ausschließlich** über Alembic-Migrationen (kein `create_
 ## Verworfene Alternativen
 
 * **`Base.metadata.create_all()` im App-Start:** kein Migrationspfad, kein reproduzierbarer Stand.
+
+## Nachtrag (2026-10-07)
+
+Der oben genannte DB-Cutover entfällt: PostgreSQL läuft auch in PROD als Container auf der VM der Anwendung ([ADR-0030](0030-postgresql-im-container-auch-in-prod.md)). Die Entscheidung dieses ADR gilt unverändert.

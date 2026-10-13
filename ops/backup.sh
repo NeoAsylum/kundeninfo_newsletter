@@ -1,7 +1,9 @@
 #!/bin/sh
-# Nächtliches DB-Backup, solange die DB im Docker-Volume läuft (Plan 9.3).
+# Nächtliches Backup der Datenbank im Docker-Volume (Plan 9.3) — auch in PROD der
+# dauerhafte Sicherungsweg (ADR-0030). Der Dump bleibt auf der VM; eine Kopie
+# außerhalb der VM legt dieses Skript nicht an — das leistet die Sicherung der VM
+# (RUNBOOK 3).
 # Cron-Beispiel (VM, User root):  0 2 * * *  /opt/stoerungsinfo/ops/backup.sh
-# Nach dem Cutover auf die externe DB übernimmt die zentrale DB-Infra.
 #
 # Sichert BEIDE Datenbanken: 'newsletter' (Abos, Versandhistorie) und 'keycloak'
 # (Benutzer, Passwörter, Realm). Ohne die zweite wäre nach einem Restore die
@@ -39,8 +41,11 @@ TARGET="$BACKUP_DIR/stoerungsinfo_$STAMP.sql.gz"
 # beim Einspielen jeweils auf die richtige Datenbank.
 DBS="${DB_NAME:-newsletter}"
 # keycloak nur sichern, wenn die DB existiert (die Konzern-VM nutzt den echten IdP)
-if $COMPOSE exec -T postgres psql -U postgres -tAc \
-    "SELECT 1 FROM pg_database WHERE datname = 'keycloak'" 2>/dev/null | grep -q 1; then
+# Scheitert schon diese Abfrage, bricht das Skript ab (set -e) — sonst gälte ein Backup
+# ohne keycloak als vollständig.
+KC_DA="$($COMPOSE exec -T postgres psql -U postgres -tAc \
+    "SELECT count(*) FROM pg_database WHERE datname = 'keycloak'")"
+if [ "$KC_DA" = "1" ]; then
     DBS="$DBS keycloak"
 fi
 echo "Sichere Datenbanken: $DBS"
@@ -66,10 +71,19 @@ if ! gzip -t "$TARGET" 2>/dev/null; then
     rm -f "$TARGET"
     exit 1
 fi
+# Jeder pg_dump endet mit dieser Zeile. Der Exit-Status der Pipeline oben ist nur der von
+# gzip: Bräche der Dump einer Datenbank ab, fehlte sie sonst unbemerkt im Backup.
+FERTIG="$(gunzip -c "$TARGET" | grep -cx -- '-- PostgreSQL database dump complete' || true)"
+ERWARTET="$(echo "$DBS" | wc -w)"
+if [ "$FERTIG" -ne "$ERWARTET" ]; then
+    echo "FEHLER: Dump unvollständig ($FERTIG von $ERWARTET Datenbanken) — Backup verworfen" >&2
+    rm -f "$TARGET"
+    exit 1
+fi
 
 find "$BACKUP_DIR" -name 'stoerungsinfo_*.sql.gz' -mtime "+$RETENTION_DAYS" -delete
 # Altbestand aus früherer Namensgebung mit aufräumen
 find "$BACKUP_DIR" -name 'newsletter_*.sql.gz' -mtime "+$RETENTION_DAYS" -delete 2>/dev/null || true
 
 echo "Backup OK: $TARGET ($(du -h "$TARGET" | cut -f1))"
-echo "HINWEIS: Monatlicher Restore-Test laut RUNBOOK — ein nie restauriertes Backup existiert nicht."
+echo "HINWEIS: Restore regelmäßig proben (RUNBOOK 3) — ein nie restauriertes Backup existiert nicht."

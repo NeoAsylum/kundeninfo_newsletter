@@ -26,6 +26,11 @@ ACME_EMAIL="${ACME_EMAIL:?ACME_EMAIL fehlt (Adresse fuer Zertifikats-Ablaufwarnu
 COMPOSE="docker compose -f compose.yaml -f compose.db.yaml -f compose.public.yaml"
 
 cd "$REPO_DIR"
+# Vor allem anderen: Ein abgebrochener Lauf soll nichts verändert haben — weder die .env
+# noch den laufenden Stack.
+# shellcheck source=deploy/vm/pg-umzug-sperre.sh
+. "$REPO_DIR/deploy/vm/pg-umzug-sperre.sh"
+pg_umzug_sperre || exit 1
 log() { echo -e "\n=== $* "; }
 secret() { openssl rand -base64 36 | tr -d '/+=\n' | head -c 32; }
 
@@ -85,8 +90,14 @@ SMTP_PASSWORD="${SMTP_PASSWORD:-}"
 MAIL_FROM="${MAIL_FROM:-}"
 MAIL_FROM_NAME="${MAIL_FROM_NAME:-Störungsinfo}"
 MAIL_REDIRECT_TO=${MAIL_REDIRECT_TO:-}
-# Gmail drosselt bei ~500/Tag — defensive Rate begrenzt den Schaden bei Missbrauch
+# Drossel in Mails je Minute: verteilt die Mails nur über die Zeit und begrenzt nicht,
+# wie viele an einem Tag hinausgehen. Die Obergrenze je Tag ist SMTP_MAX_PER_DAY.
 SMTP_MAX_PER_MINUTE=${SMTP_MAX_PER_MINUTE:-30}
+# Tageslimit für Tests über ein privates Postfach (0 = kein Limit, ADR-0032). Mails
+# über dem Limit werden nicht nachgesendet. Mit Limit bekommt Keycloak keinen
+# Mailserver und keinen Passwort-Reset — aber erst durch einen Lauf von
+# deploy/vm/deploy.sh; der Wert in dieser Datei allein stellt Keycloak nicht um.
+SMTP_MAX_PER_DAY=${SMTP_MAX_PER_DAY:-0}
 SMTP_BATCH_SIZE=50
 SMTP_TIMEOUT_S=30
 
@@ -108,7 +119,8 @@ else
     log ".env existiert — Secrets bleiben unverändert"
     # Mailkonfiguration aktualisieren, falls beim Aufruf übergeben
     for key in SMTP_HOST SMTP_PORT SMTP_SECURITY SMTP_AUTH_MODE SMTP_USER SMTP_PASSWORD \
-               MAIL_FROM MAIL_FROM_NAME MAIL_REDIRECT_TO; do
+               MAIL_FROM MAIL_FROM_NAME MAIL_REDIRECT_TO SMTP_MAX_PER_MINUTE \
+               SMTP_MAX_PER_DAY; do
         value="${!key:-__UNSET__}"
         [ "$value" = "__UNSET__" ] && continue
         if grep -q "^${key}=" .env; then
@@ -179,7 +191,7 @@ log "Sicherung vor dem Ausrollen"
 # Demo-Betrieb lässt den Stack ausserhalb von Vorführungen bewusst gestoppt
 # (demo-mode.sh stop); die Prüfung auf einen laufenden api-Container hätte genau
 # dann "Erstinstallation" gemeldet und die Sicherung übersprungen, obwohl in
-# db_data echte Konten, Abos und Versandhistorie liegen. postgres läuft hier schon.
+# pg_data echte Konten, Abos und Versandhistorie liegen. postgres läuft hier schon.
 # Vor der ersten Migration existiert 'users' noch nicht — der Fehler wird geschluckt
 # und als 0 gewertet (echte Erstinstallation).
 BESTAND="$($COMPOSE exec -T postgres \

@@ -9,5 +9,7 @@ add_header Referrer-Policy no-referrer always;
 # kein 'unsafe-inline' für Scripts (XSS-Härtung). Bewusst ohne Aufzählung der Dateien:
 # 'self' erlaubt jedes Skript gleicher Herkunft, eine Liste hier wäre nur Pflegeschuld.
 # style-src 'unsafe-inline': nötig für die E-Mail-Live-Vorschau (srcdoc-iframe erbt die
-# CSP und rendert Outlook-taugliches Inline-CSS) sowie style-Attribute der Fehlerkarten.
-add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'; base-uri 'self'" always;
+# CSP und rendert Outlook-taugliches Inline-CSS).
+# form-action 'self': default-src deckt Formularziele nicht ab — ohne die Angabe dürfte
+# ein eingeschleustes Formular an jede fremde Adresse senden.
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'" always;
