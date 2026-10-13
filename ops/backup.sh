@@ -1,9 +1,11 @@
 #!/bin/sh
-# Nächtliches Backup der Datenbank im Docker-Volume (Plan 9.3) — auch in PROD der
+# Nächtliches Backup der Datenbank im Container-Volume (Plan 9.3) — auch in PROD der
 # dauerhafte Sicherungsweg (ADR-0030). Der Dump bleibt auf der VM; eine Kopie
 # außerhalb der VM legt dieses Skript nicht an — das leistet die Sicherung der VM
 # (RUNBOOK 3).
-# Cron-Beispiel (VM, User root):  0 2 * * *  /opt/stoerungsinfo/ops/backup.sh
+# Cron-Beispiel (VM, User root):  0 2 * * *  sh /opt/stoerungsinfo/ops/backup.sh
+# Unter Podman: Cron-Zeile siehe RUNBOOK 1b — Engine und Compose-Werkzeug voranstellen, im
+# Crontab des Kontos, dem die Container gehören.
 #
 # Sichert BEIDE Datenbanken: 'newsletter' (Abos, Versandhistorie) und 'keycloak'
 # (Benutzer, Passwörter, Realm). Ohne die zweite wäre nach einem Restore die
@@ -13,17 +15,18 @@ set -eu
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/stoerungsinfo}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+ENGINE="${CONTAINER_ENGINE:-docker}"
 
 # Overlay automatisch erkennen: öffentlicher Betrieb nutzt compose.public.yaml,
 # die Konzern-VM compose.prod.yaml.
 if [ -f "$REPO_DIR/compose.public.yaml" ] && \
-   docker compose -f "$REPO_DIR/compose.yaml" -f "$REPO_DIR/compose.db.yaml" \
+   "$ENGINE" compose -f "$REPO_DIR/compose.yaml" -f "$REPO_DIR/compose.db.yaml" \
        -f "$REPO_DIR/compose.public.yaml" ps --quiet postgres 2>/dev/null | grep -q .; then
     OVERLAY="$REPO_DIR/compose.public.yaml"
 else
     OVERLAY="$REPO_DIR/compose.prod.yaml"
 fi
-COMPOSE="docker compose -f $REPO_DIR/compose.yaml -f $REPO_DIR/compose.db.yaml -f $OVERLAY"
+COMPOSE="$ENGINE compose -f $REPO_DIR/compose.yaml -f $REPO_DIR/compose.db.yaml -f $OVERLAY"
 
 # shellcheck disable=SC1091
 . "$REPO_DIR/.env"

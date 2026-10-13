@@ -2,10 +2,15 @@
 erzeugt hat. Die Dokumente dort liest die Governance-Prüfung, nicht die Anwendung — ohne
 diese Tests fiele nicht auf, wenn Stückliste, Bericht und Bewertung auseinanderlaufen."""
 
+import email.message
+import http.client
 import importlib.util
+import io
 import json
 import pathlib
 import re
+import sys
+import urllib.error
 
 import pytest
 
@@ -186,6 +191,16 @@ def test_stueckliste_eines_images_nennt_das_image_und_keine_adressen():
                 "properties": [
                     {"name": "Labels:maintainer", "value": "Maintainers <maint@example.org>"},
                     {"name": "DiffID", "value": "sha256:0123"},
+                    # So führt Podman ein Image, das docker-compose gebaut hat …
+                    {
+                        "name": "aquasecurity:trivy:RepoTag",
+                        "value": "docker.io/library/stoerungsinfo-nginx:local",
+                    },
+                    # … und so eines aus „podman build“. Docker nennt nur den Namen.
+                    {
+                        "name": "aquasecurity:trivy:Reference",
+                        "value": "localhost/stoerungsinfo-nginx:local",
+                    },
                 ],
             }
         },
@@ -215,8 +230,11 @@ def test_stueckliste_eines_images_nennt_das_image_und_keine_adressen():
         "properties": [
             {"name": "Labels:maintainer", "value": "Maintainers"},
             {"name": "DiffID", "value": "sha256:0123"},
+            {"name": "aquasecurity:trivy:RepoTag", "value": "stoerungsinfo-nginx:local"},
+            {"name": "aquasecurity:trivy:Reference", "value": "stoerungsinfo-nginx:local"},
         ],
     }
+    assert gov.lokaler_name("stoerungsinfo-nginx:local") == "stoerungsinfo-nginx:local"
     assert [k.get("supplier") for k in fertig["components"]] == [
         {"name": "NGINX Packaging"},
         {"name": "Ohne Adresse"},
@@ -679,15 +697,18 @@ def test_keine_stueckliste_enthaelt_schwachstellen():
 
 def test_der_scan_deckt_die_images_ab_die_das_projekt_baut():
     """Hebt jemand ein Basis-Image an, beschreiben Stücklisten und Bericht ein Image, das so
-    nicht mehr gebaut wird — bis `make governance` neu gelaufen ist."""
+    nicht mehr gebaut wird — bis `make governance` neu gelaufen ist. Die Unterlagen nennen
+    die Images in der Kurzform von Docker Hub, Dockerfiles und Generator schreiben die
+    Registry aus (ADR-0033)."""
     stand = _json("schwachstellen.json")["stand"]
 
     assert list(stand["images"]) == list(gov.IMAGES)
     for name, angaben in stand["images"].items():
-        assert angaben["basis"] == gov.basis_image(name), name
+        assert angaben["basis"] == gov.kurzform(gov.basis_image(name)), name
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", angaben["id"]), name
         assert (ZIEL / f"stoerungsinfo-image-{name}.cdx.json").is_file()
-    assert stand["werkzeug"]["image"] == gov.TRIVY
-    assert re.fullmatch(r"aquasec/trivy:[\d.]+@sha256:[0-9a-f]{64}", gov.TRIVY)
+    assert stand["werkzeug"]["image"] == gov.kurzform(gov.TRIVY)
+    assert re.fullmatch(r"docker\.io/aquasec/trivy:[\d.]+@sha256:[0-9a-f]{64}", gov.TRIVY)
 
 
 def test_das_nginx_image_des_pilots_baut_auf_demselben_basis_image():
@@ -736,3 +757,233 @@ def test_jede_angabe_von_hand_gilt_fuer_die_version_im_bestand():
         if "version_aus" in eintrag and im_bestand(eintrag) != eintrag["version"]
     ]
     assert veraltet == []
+
+
+# ---------- Container-Engine: Docker oder Podman (ADR-0033) ----------
+
+
+def test_kurzform_ist_der_name_auf_docker_hub():
+    """Die Unterlagen nennen Images so, wie Docker Hub sie führt; eine andere Registry gehört
+    zum Namen."""
+    python = "docker.io/library/python:3.14.8-slim@sha256:aa"
+    assert gov.kurzform(python) == "python:3.14.8-slim@sha256:aa"
+    assert (
+        gov.kurzform("docker.io/aquasec/trivy:0.75.0@sha256:bb") == "aquasec/trivy:0.75.0@sha256:bb"
+    )
+    assert gov.kurzform("quay.io/keycloak/keycloak:26.8.0") == "quay.io/keycloak/keycloak:26.8.0"
+    assert gov.kurzform("python:3.14.8-slim") == "python:3.14.8-slim"
+
+
+def test_die_image_id_traegt_unter_jeder_engine_dasselbe_praefix():
+    """Der Bericht zeigt die zwölf Stellen hinter „sha256:“. Die Kommandozeile von Podman
+    nennt die ID ohne das Präfix — ungeprüft stünden dort die Stellen 8 bis 19."""
+    assert gov.image_id("sha256:" + "a" * 64) == "sha256:" + "a" * 64
+    assert gov.image_id("b" * 64) == "sha256:" + "b" * 64
+
+
+@pytest.mark.parametrize(
+    ("gesetzt", "erwartet"), [(None, "docker"), ("", "docker"), ("podman", "podman")]
+)
+def test_der_generator_ruft_die_engine_aus_der_umgebung(monkeypatch, gesetzt, erwartet):
+    """Dieselbe Variable wie im Makefile: `make governance CONTAINER_ENGINE=podman` baut mit
+    Podman — läse der Generator danach die Images von Docker, untersuchte er einen anderen
+    Bestand oder fände keinen."""
+    if gesetzt is None:
+        monkeypatch.delenv("CONTAINER_ENGINE", raising=False)
+    else:
+        monkeypatch.setenv("CONTAINER_ENGINE", gesetzt)
+    assert _SPEC and _SPEC.loader
+    modul = importlib.util.module_from_spec(_SPEC)
+    _SPEC.loader.exec_module(modul)
+    aufrufe: list[list[str]] = []
+
+    def run(befehl, **_):
+        aufrufe.append(befehl)
+        return modul.subprocess.CompletedProcess(befehl, len(aufrufe) - 1, b"ok", b"kaputt")
+
+    monkeypatch.setattr(modul.subprocess, "run", run)
+
+    assert modul.engine("image", "inspect", "x") == b"ok"
+    assert aufrufe == [[erwartet, "image", "inspect", "x"]]
+    with pytest.raises(SystemExit, match=f"FEHLER: {erwartet} save x"):
+        modul.engine("save", "x")
+
+
+def test_der_generator_nennt_die_engine_nur_als_voreinstellung():
+    """Drei Aufrufe gehen an engine() vorbei: „save“ und der Scanner in scanne(), die Frage
+    nach den gebauten Images in erzeuge(). Stünde dort wieder „docker“, läse der Generator
+    nach einem Bau mit Podman den Bestand der anderen Engine."""
+    quelle = (REPO / "ops" / "governance.py").read_text(encoding="utf-8")
+
+    assert re.findall(r"""["'](?:docker|podman)["']""", quelle) == ['"docker"']
+
+
+class _Antwort(io.BytesIO):
+    """Was urlopen zurückgibt, soweit der Generator es nutzt: Kopfzeilen, Inhalt, with."""
+
+    def __init__(self, kopf: dict[str, str] | None = None, inhalt: bytes = b""):
+        super().__init__(inhalt)
+        self.headers = kopf or {}
+
+
+def _registry(monkeypatch, antworten: dict) -> list[tuple]:
+    """Ersetzt den Abruf: je (Methode, URL) die Antworten der Reihe nach — oder eine
+    Ausnahme, die er wirft."""
+    aufrufe: list[tuple] = []
+    offen = {stelle: list(folge) for stelle, folge in antworten.items()}
+
+    def https(url, kopf, methode="GET"):
+        aufrufe.append((methode, url, dict(kopf)))
+        ergebnis = offen[(methode, url)].pop(0)
+        if isinstance(ergebnis, Exception):
+            raise ergebnis
+        return ergebnis
+
+    monkeypatch.setattr(gov, "_https", https)
+    return aufrufe
+
+
+def _abgewiesen(url: str, code: int = 401, verweis: str | None = None) -> urllib.error.HTTPError:
+    kopf = email.message.Message()
+    if verweis:
+        kopf["WWW-Authenticate"] = verweis
+    return urllib.error.HTTPError(url, code, "abgewiesen", kopf, None)
+
+
+_MANIFEST = "https://registry-1.docker.io/v2/library/python/manifests/3.14.8-slim"
+_TOKEN = (
+    "https://auth.docker.io/token"
+    "?service=registry.docker.io&scope=repository%3Alibrary%2Fpython%3Apull"
+)
+_VERWEIS = (
+    'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",'
+    'scope="repository:library/python:pull"'
+)
+
+
+def test_der_digest_kommt_von_der_registry_mit_anonymem_token(monkeypatch):
+    """Docker Hub weist die erste Anfrage ab und nennt, wo es ein Token gibt. Gefragt wird
+    nach dem Index (alle Plattformen): Dessen Digest ist in den Dockerfiles gepinnt."""
+    aufrufe = _registry(
+        monkeypatch,
+        {
+            ("HEAD", _MANIFEST): [
+                _abgewiesen(_MANIFEST, verweis=_VERWEIS),
+                _Antwort({"Docker-Content-Digest": "sha256:cc"}),
+            ],
+            ("GET", _TOKEN): [_Antwort(inhalt=b'{"token": "geheim"}')],
+        },
+    )
+
+    assert gov.digest_in_der_registry("docker.io/library/python:3.14.8-slim") == "sha256:cc"
+    assert [(methode, url) for methode, url, _ in aufrufe] == [
+        ("HEAD", _MANIFEST),
+        ("GET", _TOKEN),
+        ("HEAD", _MANIFEST),
+    ]
+    erste, _, zweite = (kopf for _, _, kopf in aufrufe)
+    assert "application/vnd.oci.image.index.v1+json" in erste["Accept"]
+    assert "application/vnd.docker.distribution.manifest.list.v2+json" in erste["Accept"]
+    assert "Authorization" not in erste
+    assert zweite["Authorization"] == "Bearer geheim"
+    assert zweite["Accept"] == erste["Accept"]
+
+
+def test_der_digest_kommt_ohne_token_wenn_die_registry_keins_verlangt(monkeypatch):
+    url = "https://quay.io/v2/keycloak/keycloak/manifests/26.8.0"
+    aufrufe = _registry(
+        monkeypatch, {("HEAD", url): [_Antwort({"Docker-Content-Digest": "sha256:dd"})]}
+    )
+
+    assert gov.digest_in_der_registry("quay.io/keycloak/keycloak:26.8.0") == "sha256:dd"
+    assert len(aufrufe) == 1
+
+
+@pytest.mark.parametrize(
+    "antworten",
+    [
+        pytest.param({("HEAD", _MANIFEST): [_abgewiesen(_MANIFEST, 404)]}, id="tag-unbekannt"),
+        pytest.param({("HEAD", _MANIFEST): [OSError("kein Netz")]}, id="kein-netz"),
+        pytest.param(
+            {("HEAD", _MANIFEST): [http.client.BadStatusLine("x")]}, id="antwort-unlesbar"
+        ),
+        pytest.param({("HEAD", _MANIFEST): [_Antwort({})]}, id="antwort-ohne-digest"),
+        pytest.param({("HEAD", _MANIFEST): [_abgewiesen(_MANIFEST)]}, id="abgewiesen-ohne-verweis"),
+        pytest.param(
+            {
+                ("HEAD", _MANIFEST): [_abgewiesen(_MANIFEST, verweis=_VERWEIS)],
+                ("GET", _TOKEN): [_Antwort(inhalt=b"{}")],
+            },
+            id="antwort-ohne-token",
+        ),
+        pytest.param(
+            {
+                ("HEAD", _MANIFEST): [_abgewiesen(_MANIFEST, verweis=_VERWEIS)],
+                ("GET", _TOKEN): [ValueError("nur https")],
+            },
+            id="token-stelle-ohne-https",
+        ),
+    ],
+)
+def test_ohne_auskunft_der_registry_bleibt_der_stand_offen(monkeypatch, antworten):
+    """Der Bericht sagt dann „nicht geprüft“ — er rät nicht und bricht nicht ab."""
+    _registry(monkeypatch, antworten)
+    assert gov.digest_in_der_registry("docker.io/library/python:3.14.8-slim") is None
+
+    _registry(monkeypatch, antworten)
+    assert gov.basis_ist_aktuell("docker.io/library/python:3.14.8-slim@sha256:cc") is None
+
+
+def test_ein_name_ohne_registry_wird_nicht_abgefragt(monkeypatch):
+    """Wohin ein Kurzname führt, entscheidet die Engine — der Generator rät keine Registry."""
+    aufrufe = _registry(monkeypatch, {})
+
+    assert gov.digest_in_der_registry("python:3.14.8-slim") is None
+    assert gov.digest_in_der_registry("aquasec/trivy:0.75.0") is None
+    assert gov.digest_in_der_registry("docker.io/library/python") is None
+    assert aufrufe == []
+
+
+def test_der_abruf_geht_nur_ueber_https():
+    """Die Stelle für das Token nennt die Registry selbst. Verwiese sie auf http oder eine
+    Datei, fragte der Generator dort nicht an."""
+    for url in ("http://auth.example/token", "file:///etc/passwd", "ftp://x/y"):
+        with pytest.raises(ValueError, match="nur https"):
+            gov._https(url, {})
+
+
+def test_der_befehl_digest_nennt_den_digest_oder_bricht_ab(monkeypatch, capsys):
+    """Der Weg, einen Pin anzuheben, ohne ein Werkzeug der Engine (RUNBOOK 2 und 5b). Ohne
+    Auskunft der Registry endet der Aufruf mit einem Fehler statt mit einer leeren Zeile."""
+    antworten = {"docker.io/library/postgres:18-alpine": "sha256:ff"}
+    monkeypatch.setattr(gov, "digest_in_der_registry", antworten.get)
+
+    monkeypatch.setattr(
+        sys, "argv", ["governance.py", "digest", "docker.io/library/postgres:18-alpine"]
+    )
+    assert gov.main() == 0
+    assert capsys.readouterr().out == "sha256:ff\n"
+
+    for argumente in (["digest", "postgres:18-alpine"], ["digest"]):
+        monkeypatch.setattr(sys, "argv", ["governance.py", *argumente])
+        with pytest.raises(SystemExit, match="FEHLER: Kein Digest"):
+            gov.main()
+
+
+@pytest.mark.parametrize(
+    ("basis", "heute", "erwartet"),
+    [
+        ("docker.io/library/python:3.14.8-slim@sha256:cc", "sha256:cc", True),
+        ("docker.io/library/python:3.14.8-slim@sha256:cc", "sha256:ee", False),
+        ("docker.io/library/python:3.14.8-slim@sha256:cc", None, None),
+        ("docker.io/library/python:3.14.8-slim", "sha256:cc", None),
+    ],
+)
+def test_das_basis_image_gilt_als_aktuell_wenn_die_registry_denselben_digest_fuehrt(
+    monkeypatch, basis, heute, erwartet
+):
+    gefragt: list[str] = []
+    monkeypatch.setattr(gov, "digest_in_der_registry", lambda image: gefragt.append(image) or heute)
+
+    assert gov.basis_ist_aktuell(basis) is erwartet
+    assert gefragt == ["docker.io/library/python:3.14.8-slim"]

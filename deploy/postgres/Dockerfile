@@ -4,7 +4,7 @@
 # certbot. Ab 18 liegt das Datenverzeichnis unter /var/lib/postgresql/<major>/docker; das
 # Volume gehört nach /var/lib/postgresql (compose.db.yaml). Ein Major-Wechsel braucht
 # Dump und Restore (RUNBOOK 2).
-FROM postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+FROM docker.io/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
 COPY initdb/ /docker-entrypoint-initdb.d/
 # Zeilenenden normalisieren: Auf Windows/OneDrive kann das Skript CRLF bekommen,
 # der postgres-Entrypoint sourcet .sh-Dateien und stolpert dann.

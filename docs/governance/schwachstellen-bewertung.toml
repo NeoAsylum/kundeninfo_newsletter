@@ -37,7 +37,7 @@ methode = "Geprüft ist je Lücke am gebauten Image: an den Dateien, an den Abh�
 # ---------------------------------------------------------------------------
 # api — Betriebssystem-Pakete (Debian 13). Im Container laufen als Nutzer app (uid 999, ohne
 # Capabilities) laut Dockerfile und Compose: der Entrypoint (sh, alembic, sleep), uvicorn, alle 10 s der Healthcheck
-# (python) und bei Bedarf Betriebsbefehle per „docker compose exec api python …“. Der Code der
+# (sh, python) und bei Bedarf Betriebsbefehle per „docker compose exec api python …“. Der Code der
 # Anwendung startet keine Unterprozesse.
 # ---------------------------------------------------------------------------
 

@@ -31,7 +31,14 @@ services:
     healthcheck:
       # Nur Liveness — fachliche Degradation (Relay down) macht den Container
       # nicht unhealthy; /readyz gehört dem externen Monitoring (Plan 3.3).
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status==200 else 1)"]
+      # CMD-SHELL, nicht CMD: Podman bis 5.7 zerlegt die CMD-Form an jedem Leerzeichen, wenn
+      # sie über die Docker-kompatible Schnittstelle kommt — der Python-Ausdruck käme in
+      # Stücken an und der Container gälte nie als gesund (ADR-0033).
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status==200 else 1)"
       interval: 10s
       timeout: 5s
       retries: 5

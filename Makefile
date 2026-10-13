@@ -2,9 +2,13 @@
 # Windows-Entwicklung: .\make.ps1 <target> (dünner Wrapper, identische Namen).
 SHELL := /bin/sh
 
-COMPOSE_DEV  := docker compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml
+# Container-Engine: docker (Voreinstellung) oder podman, z. B. „make dev CONTAINER_ENGINE=podman“
+# (ADR-0033). Die Skripte unter ops/ lesen dieselbe Variable aus der Umgebung.
+CONTAINER_ENGINE := $(or $(CONTAINER_ENGINE),docker)
+export CONTAINER_ENGINE
+COMPOSE_DEV  := $(CONTAINER_ENGINE) compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml
 # PROD immer mit DB-Overlay: PostgreSQL läuft als Container auf derselben VM (ADR-0030).
-COMPOSE_PROD := docker compose -f compose.yaml -f compose.db.yaml -f compose.prod.yaml
+COMPOSE_PROD := $(CONTAINER_ENGINE) compose -f compose.yaml -f compose.db.yaml -f compose.prod.yaml
 GIT_SHA      := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BASE_URL     ?= http://localhost:8080
 # Ohne node_modules scheitert npm mit „playwright: command not found“ — die Ursache nennen.
@@ -56,10 +60,10 @@ format: ## Autoformat + Autofix
 	ruff format backend
 	ruff check --fix backend
 
-test: ## Unit-Tests: ohne Docker/DB/Netz, < 30 s (Plan 8.1)
+test: ## Unit-Tests: ohne Container/DB/Netz, < 30 s (Plan 8.1)
 	cd backend && python -m pytest tests/unit -q
 
-test-frontend: ## Frontend-Verhaltenstests im Browser (Edge/Chrome), ohne Server/Docker/Netz
+test-frontend: ## Frontend-Verhaltenstests im Browser (Edge/Chrome), ohne Server/Container/Netz
 	@$(FRONTEND_READY)
 	cd frontend/tests && npm test
 

@@ -1,6 +1,6 @@
 # python:3.14.8-slim, per Digest gepinnt (Plan 9.7). Nicht älter als 3.14.5: Bis 3.14.4
 # lief ein inkrementeller Garbage Collector, der unter Last Speicher band.
-FROM python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+FROM docker.io/library/python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -69,8 +69,9 @@ def test_python_version_ist_im_image_in_der_ci_und_in_der_sbom_dieselbe():
     Dockerfile Version und Digest anhebt, ließe die CI sonst still auf der alten Version
     weiterlaufen und die SBOM ein Image nennen, das nicht mehr gebaut wird."""
     dockerfile = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
-    im_image = re.findall(r"^FROM python:(\d+\.\d+\.\d+)-slim@sha256:", dockerfile, re.M)
-    assert len(im_image) == 1, "backend/Dockerfile: FROM python:X.Y.Z-slim@sha256:… erwartet"
+    von = r"^FROM docker\.io/library/python:(\d+\.\d+\.\d+)-slim@sha256:"
+    im_image = re.findall(von, dockerfile, re.M)
+    assert len(im_image) == 1, "backend/Dockerfile: FROM …/python:X.Y.Z-slim@sha256:… erwartet"
 
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     in_der_ci = re.findall(r"""^\s+python-version:\s*["']?([^\s"'#]+)""", ci, re.M)

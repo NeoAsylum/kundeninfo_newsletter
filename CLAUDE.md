@@ -42,3 +42,7 @@ Planungsstand — bei Widersprüchen gewinnen Code und ADRs.
   Code, Frontend und Realm sind in Images eingebacken → nach Änderungen `make dev`
   (baut neu, dauert Sekunden).
 - Windows-Entwicklung: `make` existiert nicht — `.\make.ps1 <target>` verwenden.
+- Docker ist die Voreinstellung, Podman die zweite Engine (`CONTAINER_ENGINE=podman`,
+  ADR-0033). In Makefile, `make.ps1` und `ops/` keine Engine fest nennen; bezogene Images
+  immer mit Registry (`docker.io/library/…`). Die CI prüft nur Docker — was den Start des
+  Stacks betrifft, unter Podman von Hand gegenprüfen (RUNBOOK 1b).

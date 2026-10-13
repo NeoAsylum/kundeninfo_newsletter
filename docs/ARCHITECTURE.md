@@ -8,7 +8,7 @@ Die Anwendung besteht in jeder Umgebung aus drei Containern: **NGINX** (TLS, sta
 
 ```mermaid
 flowchart LR
-  subgraph DEV["DEV – docker compose auf Entwickler-Host"]
+  subgraph DEV["DEV – Compose auf Entwickler-Host"]
     B1["Browser"] -->|"HTTP :8080"| N1["NGINX<br/>statisches FE + Proxy"]
     N1 -->|"intern :8000"| A1["FastAPI-Backend<br/>REST, BFF/OIDC, Outbox-Worker"]
     A1 -->|"SQL :5432"| DB1[("PostgreSQL-Container<br/>compose.db.yaml")]
@@ -28,7 +28,7 @@ flowchart LR
   subgraph PROD["Zielbild Konzern – Linux-VM, compose.prod.yaml"]
     B2["Browser (Intranet)"] -->|"HTTPS :443"| N2["NGINX<br/>Konzern-Zertifikat"]
     N2 -->|"intern :8000"| A2["FastAPI-Backend"]
-    A2 -->|"SQL :5432<br/>im Docker-Netz"| DB2[("PostgreSQL-Container<br/>compose.db.yaml")]
+    A2 -->|"SQL :5432<br/>im Container-Netz"| DB2[("PostgreSQL-Container<br/>compose.db.yaml")]
     B2 -.->|"SSO-Redirect"| IDP["Konzern-IdP<br/>Entra ID / Keycloak"]
     A2 -->|"SMTP :25/587"| XR["Exchange-Relay<br/>interner SMTP-Host"]
     A2 -.->|"JWKS :443"| IDP
@@ -72,16 +72,21 @@ Gilt für das Zielbild im Konzern. Der öffentliche Pilot weicht ab, wo vermerkt
 |---|---|---|---|---|---|
 | Backend | Exchange-Relay | 25 / 587/TCP | SMTP-Versand | `SMTP_HOST` / `SMTP_PORT` | `mailpit` Container |
 | Backend | Konzern-IdP | 443/TCP | OIDC-Discovery & JWKS | `OIDC_ISSUER_URL` | `keycloak` Container |
-| Backend | Konzern-DNS | 53/UDP+TCP | Namensauflösung (IdP, Relay) | – | Docker-DNS |
+| Backend | Konzern-DNS | 53/UDP+TCP | Namensauflösung (IdP, Relay) | – | DNS des Container-Netzes |
 | Backend | Zeitserver (NTP) | 123/UDP | Systemzeit für TLS- und JWT-Prüfung (`exp`) | – | Host-Uhr |
-| VM (Build) | Docker Registry | 443/TCP | Base-Images (`nginx`, `python`, `postgres`) | `HTTPS_PROXY` | – |
+| VM (Build) | Docker Hub (`registry-1.docker.io`, `auth.docker.io`; die Schichten liefert ein weiterer Host aus, am 2026-10-13 `production.cloudfront.docker.com` — nicht abschließend) | 443/TCP | Base-Images (`nginx`, `python`, `postgres`) | `HTTPS_PROXY` | – |
 | VM (Build) | PyPI Mirror | 443/TCP | Python-Abhängigkeiten (`pip`) | `HTTPS_PROXY` | – |
 | VM (Pilot) | Let's Encrypt, `www.cloudflare.com`, `api.ipify.org`, `quay.io`, `download.docker.com` (nicht abschließend) | 443/TCP | Zertifikatsausstellung, Cloudflare-IP-Bereichsliste, Anzeige der eigenen öffentlichen IP, Keycloak-Image, Docker-Installation | – | – |
 
 Die Datenbank steht nicht in der Matrix: Backend und PostgreSQL-Container sprechen im
-Docker-Netz `appnet` derselben VM miteinander (5432/TCP), der Container veröffentlicht
+Container-Netz `appnet` derselben VM miteinander (5432/TCP), der Container veröffentlicht
 keinen Host-Port. Die Verbindung verlässt die VM nicht und braucht keine Freischaltung —
 auch in PROD ([ADR-0030](adr/0030-postgresql-im-container-auch-in-prod.md)).
+
+Die Matrix gilt für Docker wie für Podman
+([ADR-0033](adr/0033-container-engine-docker-oder-podman.md)): Die Engine ändert keine
+Verbindung und keinen Port. Unter Podman ohne Root-Rechte sieht NGINX allerdings nicht
+die Adresse des Clients (RUNBOOK 1b).
 
 Nicht für die VM, nur für Entwicklerrechner und CI: `registry.npmjs.org` (Testwerkzeug der
 Frontend-Tests), für `npm audit signatures` (RUNBOOK 5c) zusätzlich
@@ -96,7 +101,7 @@ Schwachstellenbericht, RUNBOOK 5b): die Registry des Scanner-Image (`aquasec/tri
 Docker Hub), für dessen Schwachstellen-Datenbank `mirror.gcr.io` — ersatzweise `ghcr.io` mit
 `pkg-containers.githubusercontent.com` —, `pypi.org` und `files.pythonhosted.org` für das
 Werkzeug der Stückliste sowie die Registries der Basis-Images (Docker Hub, `quay.io`) für
-die Abfrage, ob ein neueres vorliegt. Der Scan selbst läuft ohne Netz; das Skript lädt kein
+die Abfrage, ob ein neueres vorliegt — das Skript fragt selbst und beachtet `HTTPS_PROXY`. Der Scan selbst läuft ohne Netz; das Skript lädt kein
 Image und kein Ergebnis hoch.
 
 ### Ingress (eingehend zur VM)

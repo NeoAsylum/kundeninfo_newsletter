@@ -100,3 +100,11 @@ Komponenten, Urheber und Lizenzen nennt, und das Ergebnis einer Schwachstellenan
 * **Negativ:** Der Ordner wächst um rund 1,5 MB erzeugter Dateien. `make governance` braucht
   Docker, Netz und gut 1 GB Download je Lauf. Die Bewertungen sind Handarbeit und veralten
   mit jedem Scan.
+
+## Nachtrag (2026-10-13): Docker oder Podman
+
+`make governance` läuft mit beiden Engines
+([ADR-0033](0033-container-engine-docker-oder-podman.md)). Ob ein Basis-Image noch aktuell
+ist, fragt der Generator dafür selbst bei der Registry ab statt über `docker buildx`. Ein
+Lauf unter Podman 6.1.4 ergab dieselben Komponenten und dieselben 304 Funde wie der unter
+Docker; die Stücklisten nennen die selbst gebauten Images in beiden Fällen ohne Registry.

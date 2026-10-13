@@ -4,6 +4,7 @@ Beide sprechen denselben lokalen Keycloak an und brauchen denselben Schutz gegen
 einen versehentlichen Aufruf auf dem öffentlichen Server.
 """
 
+import os
 import pathlib
 import sys
 
@@ -14,12 +15,14 @@ REALM = "dev"
 
 _ENV_FILE = pathlib.Path(__file__).resolve().parents[1] / ".env"
 
+# Der Hinweis nennt die Engine aus CONTAINER_ENGINE der Umgebung (ADR-0033).
 _KCADM = (
-    "docker compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml "
+    f"{os.environ.get('CONTAINER_ENGINE') or 'docker'} compose "
+    "-f compose.yaml -f compose.db.yaml -f compose.dev.yaml "
     "exec -T keycloak /opt/keycloak/bin/kcadm.sh"
 )
 HTTPS_HINWEIS = f"""FEHLER: Keycloak lehnt den Admin-Login über http ab ("HTTPS required").
-Es hält die Verbindung vom Host für extern (Absenderadresse aus dem Docker-Netz).
+Es hält die Verbindung vom Host für extern (Absenderadresse aus dem Container-Netz).
 Einmal je Keycloak-Container im Container selbst freischalten, dort ist sie lokal:
 
   {_KCADM} config credentials --server http://localhost:8081 --realm master --user admin --password admin

@@ -47,6 +47,69 @@ Dieses Dokument richtet sich an Entwickler und Systemadministratoren zur Durchf�
 
 ---
 
+## 1b. Betrieb unter Podman statt Docker (ADR-0033)
+
+Dieselben Compose-Dateien, eine Variable: `CONTAINER_ENGINE=podman` — als Argument von
+`make` oder in der Umgebung (Cron: siehe „Backup“ unten). Ohne sie rufen Makefile und
+Skripte `docker` auf. Die Aufrufe in diesem Handbuch nennen `docker compose …`; unter
+Podman heißt derselbe Aufruf `podman compose …`.
+
+```bash
+make prod CONTAINER_ENGINE=podman
+CONTAINER_ENGINE=podman BACKUP_DIR=<verzeichnis> sh ops/backup.sh
+```
+
+Geprüft mit Podman 5.6.0 und 5.8.2 (AlmaLinux 9.7 und 9.8, der Stand von RHEL 9.7 und
+9.8/10.2) ohne Root-Rechte und mit Podman 6.1.4 — alles unter WSL 2, nicht auf einer echten
+VM. Was „nicht geprüft“ heißt, stammt aus den Quellen von Podman.
+
+**Was der Host braucht**
+
+| Voraussetzung | Ohne sie | Einrichten |
+|---|---|---|
+| Compose-Werkzeug: `docker-compose` (das eigenständige Programm von Docker, geprüft mit 5.1.0) und die Schnittstelle, über die es mit Podman spricht | `exec: "docker-compose": executable file not found in $PATH` oder, ohne die Schnittstelle, `Cannot connect to the Docker daemon at unix:///run/user/<uid>/podman/podman.sock`. Mit podman-compose 1.5.0 (EPEL) bricht `make prod` an `--wait` ab | `docker-compose` in den `PATH` legen oder `PODMAN_COMPOSE_PROVIDER=<pfad>` setzen — AlmaLinux 9/10 und EPEL führen kein Paket dafür (Stand 2026-10-13); geprüft mit der Binärdatei samt Prüfsumme aus den Releases von `github.com/docker/compose`. Dazu `systemctl --user enable --now podman.socket` (mit Root-Rechten ohne `--user`) |
+| Neustart-Dienst — Podman hat keinen Daemon | Nach einem Neustart der VM bleibt der Stack aus, trotz `restart: always` | `systemctl --user enable podman-restart.service` und als root `loginctl enable-linger <konto>`; mit Root-Rechten `systemctl enable podman-restart.service` |
+| Nur rootless: CPU-Grenzen (`cpus` in `compose.prod.yaml`) | `crun: controller cpu is not available under /sys/fs/cgroup/user.slice/…` beim Start von `api` | als root `/etc/systemd/system/user@.service.d/delegate.conf` mit `[Service]` und `Delegate=cpu cpuset io memory pids`, dann die VM neu starten |
+| Nur rootless: Ports 80 und 443 | `rootlessport cannot expose privileged port 80 …` beim Start von `nginx` | als root `net.ipv4.ip_unprivileged_port_start=80` in `/etc/sysctl.d/` und `sysctl --system` — gilt dann für alle Konten der VM |
+| Nur mit SELinux (nicht geprüft): Etikett für die drei eingebundenen Dateien — Zertifikat, Schlüssel, `deploy/nginx/conf.d/app.prod.conf.template` | NGINX darf sie nicht lesen (`Permission denied`) | als root `chcon -t container_file_t <datei>` für genau diese Dateien — Zertifikat und Schlüssel in einem eigenen Verzeichnis, kein Systemverzeichnis als Ganzes umetikettieren |
+
+Rootless müssen Zertifikat und Schlüssel dem Konto gehören, unter dem der Stack läuft
+(`600` genügt): Es ist im Container root. Mit diesem Konto wirklich anmelden (ssh) — nach
+`su` oder `sudo -u` fehlt Podman die systemd-Sitzung, an der Healthchecks und Grenzen
+hängen (nicht geprüft; mit `runuser` zeigte sich die Warnung dazu).
+
+Vor Podman 5.8.2 bringt der Neustart-Dienst nur Container mit `restart: always` zurück
+(geprüft mit 5.6.0, die Grenze laut Versionshinweisen); `compose.prod.yaml` setzt deshalb
+diese Policy. Ein mit `stop` angehaltener Stack läuft nach einem Neustart der VM also
+wieder — unter Docker laut dessen Dokumentation schon nach einem Neustart des
+Docker-Dienstes; `down` hält ihn aus. Im DEV-Stack hat nur die Datenbank eine Policy
+(`unless-stopped`).
+
+**Was sich anders verhält**
+
+* **Logs:** `json-file` ist unter Podman dessen Format `k8s-file`. `max-size` schneidet das
+  Log bei 10 MB ab, statt zu rotieren; `max-file` wirkt nicht (beides nicht geprüft). Je
+  Container bleiben also höchstens 10 MB, und `logs` zeigt nichts vor dem letzten Schnitt.
+* **Adresse des Clients (rootless):** NGINX sieht für jeden Zugriff seine eigene Adresse im
+  Container-Netz, nicht die des Clients — im Zugriffslog und in `X-Forwarded-For`. Mit
+  Root-Rechten nicht geprüft.
+* **Nur-Lese-Dateisystem der API:** Podman macht neben `/tmp` auch `/run` und `/var/tmp`
+  beschreibbar (nicht geprüft).
+* **Backup:** `ops/backup.sh` als das Konto aufrufen, dem die Container gehören — root sieht
+  die Container eines anderen Kontos nicht. `BACKUP_DIR` muss diesem Konto gehören. Im
+  Crontab dieses Kontos beides voranstellen, Engine und Compose-Werkzeug:
+  `0 2 * * * CONTAINER_ENGINE=podman PODMAN_COMPOSE_PROVIDER=<pfad zu docker-compose> BACKUP_DIR=<verzeichnis> sh <repo>/ops/backup.sh >> <logdatei> 2>&1`.
+  Cron kennt den `PATH` der Anmeldung nicht: Ohne die zweite Angabe fand `podman compose`
+  im Versuch ein anderes Werkzeug, und das Backup schlug fehl.
+* **Paketfilter:** Rootless ist ein veröffentlichter Port ein gewöhnlicher Port des Hosts
+  und folgt dessen Regeln; mit Root-Rechten setzt Podman eigene Regeln (beides nicht
+  geprüft; Frage B13).
+* **Windows-Entwicklung:** Die Podman-Maschine rootless lassen (Auslieferungszustand). Im
+  Modus rootful beantwortet sie `localhost` nur über IPv4; jede Verbindung dorthin wartet
+  dann rund zwei Sekunden, und `make.ps1 test-db` läuft Minuten statt Sekunden.
+
+---
+
 ## 2. Datenbank: Container auf derselben VM
 
 PostgreSQL läuft in jeder Umgebung als Container auf derselben Maschine wie die Anwendung
@@ -63,7 +126,8 @@ Frage B7):
   (`deploy/postgres/Dockerfile`; die Test-DB in `compose.dev.yaml` nennt denselben Digest).
   Eine neue Unterversion erreicht die VM erst, wenn der Digest an beiden Stellen angehoben
   und das Image neu gebaut ist — den aktuellen zeigt
-  `docker buildx imagetools inspect postgres:18-alpine`.
+  `python ops/governance.py digest docker.io/library/postgres:18-alpine` (braucht Python ab
+  3.11 — etwa auf dem Entwicklerrechner, Abschnitt 5b).
 * **Major-Upgrade:** kein bloßer Tag-Wechsel — der neue Server liest das Datenverzeichnis
   des alten nicht. Der Weg ist Dump und Restore auf ein neues Volume; siehe unten.
 * **Server-Log:** `docker compose … logs postgres` zeigt zu einem Fehler nur die ERROR-Zeile
@@ -142,7 +206,7 @@ Die Sicherung auf der VM ist das dauerhafte Konzept, auch in PROD (ADR-0030).
   er personenbezogene Klartextdaten und Passwort-Hashes enthält). Gesichert werden
   `newsletter` und — falls vorhanden — `keycloak`. Als nächtlichen Cron einrichten (User
   root):
-  `0 2 * * * /opt/stoerungsinfo/ops/backup.sh >> /var/log/stoerungsinfo-backup.log 2>&1`
+  `0 2 * * * sh /opt/stoerungsinfo/ops/backup.sh >> /var/log/stoerungsinfo-backup.log 2>&1`
 * **Sicherung der VM**: Die Ziel-VM wird wie alle Linux- und Windows-VMs des Unternehmens
   täglich und stündlich vom Tivoli Storage Manager gesichert (Auftraggeber, 2026-10-12).
   Der Dump liegt auf der VM und ist damit Teil dieser Sicherung — ebenso die
@@ -764,7 +828,7 @@ erzeugen:
 #    `--upgrade-package <name>` an (etwa nach einer Sicherheitsmeldung), alle zusammen
 #    hebt `--upgrade` an. Nicht pip-tools 7.6.1 mit click ab 8.5: Die Paarung schreibt
 #    ein nie übergebenes `--no-index` in die Kopfzeile des Lockfiles.
-docker run --rm -v "$PWD/backend:/w" -w /w python:3.14.8-slim sh -c '
+docker run --rm -v "$PWD/backend:/w" -w /w docker.io/library/python:3.14.8-slim sh -c '
   pip install -q pip-tools==7.6.2 &&
   pip-compile --generate-hashes --strip-extras -o requirements.lock requirements.txt'
 
@@ -778,8 +842,9 @@ Dateien stattdessen mit `docker cp` in einen per `docker create` angelegten Cont
 und das Ergebnis wieder herauskopieren. Schritt 2 kommt ohne Bind-Mount aus.
 
 Schritt 2 läuft auf einem Entwicklerrechner, nicht auf der VM: Er braucht einen Git-Checkout
-(die Unterlagen nennen den Commit), Docker mit `buildx`, Python ab 3.11, eine `.env` für
-`docker compose build` und die bestehende `docs/governance/stoerungsinfo-app.cdx.json`. Am
+(die Unterlagen nennen den Commit), Docker oder Podman (`CONTAINER_ENGINE`, Abschnitt 1b),
+Python ab 3.11, eine `.env` für den Bau der Images und die bestehende
+`docs/governance/stoerungsinfo-app.cdx.json`. Am
 besten auf einem eingecheckten Stand laufen lassen — sonst tragen die Unterlagen den Vermerk
 „mit nicht eingecheckten Änderungen“ (in der Stückliste: `-dirty`).
 
@@ -793,14 +858,15 @@ dem Tag `local`, gleich was `IMAGE_TAG` in der `.env` sagt):
   Wurzel übernimmt es aus der bestehenden Datei; der Commit darin ist der Stand, auf dem
   erzeugt wurde.
 * **Stückliste und Scan je Image** mit Trivy — per Digest gepinnt, als Container, ohne
-  Docker-Socket: Das Image geht als Archiv hinein, der Scan läuft ohne Netz. Vorher lädt das
+  Socket der Engine: Das Image geht als Archiv hinein, der Scan läuft ohne Netz. Vorher lädt das
   Skript die Schwachstellen-Datenbank in das Volume `stoerungsinfo-trivy-cache` (gut 1 GB
   Download, rund 3 GB belegt; die Datenbank gilt einen bis drei Tage, danach lädt der
   nächste Lauf sie neu. `docker volume rm stoerungsinfo-trivy-cache` gibt den Platz frei).
   Erreichbar sein müssen: Docker Hub (Scanner-Image), `mirror.gcr.io` oder ersatzweise
   `ghcr.io` (Datenbank), `pypi.org` und `files.pythonhosted.org` (Werkzeug der Stückliste).
-  Ob ein Basis-Image noch aktuell ist, fragt das Skript bei dessen Registry ab (Docker Hub,
-  `quay.io`); ohne Antwort steht im Bericht „nicht geprüft“.
+  Ob ein Basis-Image noch aktuell ist, fragt das Skript selbst bei dessen Registry ab
+  (`registry-1.docker.io` mit einem anonymen Token von `auth.docker.io`, `quay.io`); ohne
+  Antwort steht im Bericht „nicht geprüft“.
 * **`KOMPONENTEN.md` und `SCHWACHSTELLEN.md`** aus diesen Dateien.
 
 **Danach von Hand:** In `SCHWACHSTELLEN.md`, Abschnitt 3, steht jede Lücke einmal, die
@@ -822,7 +888,7 @@ schreibt. Nicht erfasst: neue Versionen von Mailpit und Certbot (unverändert be
 Images, nicht im Scan).
 
 **Trivy anheben:** Version und Digest stehen in `ops/governance.py` (`TRIVY`); den Digest
-liefert `docker buildx imagetools inspect aquasec/trivy:<version>`. Immer per Digest beziehen:
+liefert `python ops/governance.py digest docker.io/aquasec/trivy:<version>`. Immer per Digest beziehen:
 Im März 2026 lagen unter den Tags 0.69.4 bis 0.69.6 manipulierte Images
 (GHSA-69fq-xp46-6x23).
 

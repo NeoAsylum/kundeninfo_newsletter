@@ -16,7 +16,9 @@ REPO = pathlib.Path(__file__).resolve().parents[3]
 # „-f compose.yaml“ im Makefile ebenso wie „"-f", "compose.yaml"“ in make.ps1
 _DATEIANGABE = r"""-f["']?,?\s+["']?compose"""
 _ZEICHENKETTE = r"""('[^']*'|"[^"]*")"""
-_AUFRUF = r"\bdocker\s+compose\b"
+# Die Engine steht in einer Variablen (ADR-0033): $(CONTAINER_ENGINE) im Makefile, $Engine
+# in make.ps1. Ein ausgeschriebenes „docker compose“ gälte ebenso als Aufruf.
+_AUFRUF = r"(?:\$\(CONTAINER_ENGINE\)|\$Engine|\b(?:docker|podman))\s+compose\b"
 # Eine Scan-Zeile, die ausgeführt wird und den Lauf bei einem Fund abbricht: kein „-“ davor
 # (make überginge den Fehler), --exit-code 1, dahinter kein Befehl außer Fail-IfError (make.ps1)
 _SCAN = re.compile(
@@ -44,8 +46,8 @@ def _dateilisten(zeilen: list[str]) -> list[str]:
 
 
 def _aufrufe(zeilen: list[str]) -> list[str]:
-    """Die Zeilen mit „docker compose“ außerhalb von Zeichenketten — die Worte in einem echo
-    sind kein Aufruf."""
+    """Die Zeilen mit einem Compose-Aufruf außerhalb von Zeichenketten — die Worte in einem
+    echo sind kein Aufruf."""
     aufrufe = [z for z in zeilen if re.search(_AUFRUF, re.sub(_ZEICHENKETTE, "", z))]
     assert aufrufe, "kein Compose-Aufruf gefunden"
     return aufrufe
@@ -134,7 +136,7 @@ def test_der_datenbank_container_hat_in_prod_eine_log_rotation():
 def test_postgres_ist_per_digest_gepinnt_und_die_test_db_nutzt_denselben_stand():
     """Wie nginx, python und keycloak (ADR-0008). Die Tests sollen gegen die Version laufen,
     die ausgeliefert wird — sonst prüfen sie einen anderen Stand als den der VM."""
-    muster = r"postgres:18-alpine@(sha256:[0-9a-f]{64})"
+    muster = r"docker\.io/library/postgres:18-alpine@(sha256:[0-9a-f]{64})"
     dockerfile = (REPO / "deploy" / "postgres" / "Dockerfile").read_text("utf-8")
     dev = (REPO / "compose.dev.yaml").read_text("utf-8")
     im_image = re.findall(rf"^FROM {muster}\s*$", dockerfile, re.M)
@@ -378,6 +380,9 @@ sh "$2"
 # ihn nicht schon verwirft (Zufallsdaten: gzip macht sie nicht klein).
 BACKUP_ATTRAPPE = """#!/bin/sh
 case "$*" in
+    # Die Attrappe meldet postgres unter dem Pilot-Overlay: Das PROD-Overlay wählte das Skript
+    # nur, wenn seine erste Frage an eine andere Engine ging und ins Leere lief.
+    *compose.prod.yaml*) echo "falsches Overlay: $*" >&2; exit 64 ;;
     *"ps --quiet postgres"*) echo abc123 ;;
     *"FROM pg_database"*) [ -z "$ABFRAGE_SCHEITERT" ] || exit 1; echo 1 ;;
     *"pg_dump -U postgres "*)
@@ -394,25 +399,32 @@ esac
 
 @pytest.mark.skipif(_bash() is None, reason="keine Git Bash gefunden (die von WSL taugt nicht)")
 @pytest.mark.parametrize(
-    ("bricht_ab", "abfrage_scheitert", "meldung"),
+    ("bricht_ab", "abfrage_scheitert", "meldung", "engine"),
     [
-        pytest.param("", "", "", id="beide-vollstaendig"),
-        pytest.param("keycloak", "", "1 von 2 Datenbanken", id="keycloak-bricht-ab"),
-        pytest.param("newsletter", "", "0 von 2 Datenbanken", id="newsletter-bricht-ab"),
-        pytest.param("", "1", None, id="abfrage-nach-keycloak-scheitert"),
+        pytest.param("", "", "", "docker", id="beide-vollstaendig"),
+        pytest.param("", "", "", "podman", id="beide-vollstaendig-unter-podman"),
+        pytest.param("keycloak", "", "1 von 2 Datenbanken", "docker", id="keycloak-bricht-ab"),
+        pytest.param("newsletter", "", "0 von 2 Datenbanken", "docker", id="newsletter-bricht-ab"),
+        pytest.param("", "1", None, "docker", id="abfrage-nach-keycloak-scheitert"),
     ],
 )
 def test_backup_verwirft_einen_dump_dem_eine_datenbank_fehlt(
-    tmp_path, bricht_ab, abfrage_scheitert, meldung
+    tmp_path, bricht_ab, abfrage_scheitert, meldung, engine
 ):
     """Der Exit-Status der Dump-Pipeline ist nur der von gzip. Bräche pg_dump für eine
     Datenbank ab — oder scheiterte schon die Frage, ob es keycloak gibt —, läge sonst ein
-    Backup da, dem die Konten fehlen, und das Skript meldete „Backup OK“."""
+    Backup da, dem die Konten fehlen, und das Skript meldete „Backup OK“. Vorn im PATH
+    liegen zwei Attrappen: die der Engine, die CONTAINER_ENGINE nennt (ADR-0033), und eine
+    für die andere, die jeden Aufruf abweist — riefe das Skript unter Podman doch „docker“,
+    schlüge der Lauf fehl."""
     attrappen, repo, ziel = tmp_path / "bin", tmp_path / "repo", tmp_path / "ziel"
     for ordner in (attrappen, repo, ziel):
         ordner.mkdir()
-    (attrappen / "docker").write_text(BACKUP_ATTRAPPE, encoding="utf-8", newline="\n")
-    (attrappen / "docker").chmod(0o755)
+    andere = "podman" if engine == "docker" else "docker"
+    abweisen = '#!/bin/sh\necho "falsche Engine: $0 $*" >&2\nexit 65\n'
+    for name, inhalt in ((engine, BACKUP_ATTRAPPE), (andere, abweisen)):
+        (attrappen / name).write_text(inhalt, encoding="utf-8", newline="\n")
+        (attrappen / name).chmod(0o755)
     (repo / "compose.public.yaml").write_text("", encoding="utf-8")
     (repo / ".env").write_text("DB_NAME=newsletter\n", encoding="utf-8", newline="\n")
     skript = REPO / "ops" / "backup.sh"
@@ -425,6 +437,7 @@ def test_backup_verwirft_einen_dump_dem_eine_datenbank_fehlt(
             "BACKUP_DIR": ziel.as_posix(),
             "BRICHT_AB": bricht_ab,
             "ABFRAGE_SCHEITERT": abfrage_scheitert,
+            "CONTAINER_ENGINE": "" if engine == "docker" else engine,
         },
         capture_output=True,
         text=True,
@@ -443,3 +456,188 @@ def test_backup_verwirft_einen_dump_dem_eine_datenbank_fehlt(
         assert backups == []
         if meldung is not None:
             assert f"FEHLER: Dump unvollständig ({meldung})" in lauf.stderr
+
+
+# ---------- Container-Engine: Docker oder Podman (ADR-0033) ----------
+
+# registry/pfad:tag@sha256:… — der erste Teil ist ein Hostname, also mit Punkt
+_AUSGESCHRIEBEN = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+/[\w./-]+:[\w.-]+@sha256:[0-9a-f]{64}")
+_PS_AUFRUF = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+_COMPOSE_PS = "compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml ps"
+
+
+def _bezogene_images() -> dict[str, list[str]]:
+    """Jede Stelle, an der ein Image von außen kommt: die FROM-Zeilen, die image-Zeilen der
+    Compose-Dateien (ohne die selbst gebauten stoerungsinfo-…) und das alte PostgreSQL des
+    Umzugsskripts. Den Scanner prüft test_governance.py."""
+    stellen: dict[str, list[str]] = {}
+    dockerfiles = [REPO / "backend" / "Dockerfile", *sorted((REPO / "deploy").rglob("Dockerfile*"))]
+    for datei in dockerfiles:
+        von = re.findall(r"^FROM\s+(\S+)", datei.read_text("utf-8"), re.M)
+        stellen[datei.relative_to(REPO).as_posix()] = von
+    for datei in sorted(REPO.glob("compose*.yaml")):
+        images = re.findall(r"^\s+image:\s*(\S+)", datei.read_text("utf-8"), re.M)
+        stellen[datei.name] = [i for i in images if not i.startswith("stoerungsinfo-")]
+    umzug = (REPO / "deploy" / "vm" / "pg-umzug.sh").read_text("utf-8")
+    stellen["deploy/vm/pg-umzug.sh"] = re.findall(r'^ALT_IMAGE="([^"]+)"', umzug, re.M)
+    return stellen
+
+
+def test_jedes_bezogene_image_nennt_registry_und_digest():
+    """Docker ergänzt einen Kurznamen wie „postgres:18-alpine“ stets zu docker.io/library/….
+    Podman tut das nur über die Docker-kompatible Schnittstelle (docker-compose). Bei
+    direktem „podman build“ oder „podman run“ fragt es die registries.conf des Hosts: Auf
+    AlmaLinux brach so der Bau des Datenbank-Image ohne Terminal ab („short-name resolution
+    enforced but cannot prompt without a TTY“). Ausgeschrieben meinen beide Engines dasselbe
+    Image."""
+    stellen = _bezogene_images()
+
+    assert sum(len(images) for images in stellen.values()) >= 9, stellen
+    for datei in (
+        "backend/Dockerfile",
+        "deploy/postgres/Dockerfile",
+        "compose.dev.yaml",
+        "compose.public.yaml",
+        "deploy/vm/pg-umzug.sh",
+    ):
+        assert stellen[datei], f"{datei}: kein bezogenes Image gefunden"
+    kurz = {
+        datei: [i for i in images if not _AUSGESCHRIEBEN.fullmatch(i)]
+        for datei, images in stellen.items()
+    }
+    assert {datei: images for datei, images in kurz.items() if images} == {}
+
+
+def test_kein_healthcheck_in_cmd_form_hat_ein_argument_mit_leerzeichen():
+    """Podman bis 5.7 zerlegt einen Healthcheck in CMD-Form an jedem Leerzeichen, wenn er über
+    die Docker-kompatible Schnittstelle kommt (docker-compose). Beobachtet mit 5.6.0: Aus dem
+    Python-Ausdruck der API wurden acht Wörter, der Container galt nie als gesund, und
+    `up --wait` brach ab. Die Form CMD-SHELL kommt als eine Zeichenkette an."""
+    formen: list[str] = []
+    for datei in sorted(REPO.glob("compose*.yaml")):
+        text = _ohne_kommentare(datei.read_text("utf-8"))
+        vorher = len(formen)
+        # Entweder die ganze Liste in der Zeile oder ein Eintrag je Zeile darunter
+        for in_der_zeile, erster_eintrag in re.findall(
+            r"^ +test:[ \t]*(?:\[(.*)\][ \t]*$|\n +- *(\S+))", text, re.M
+        ):
+            argumente = re.findall(r'"((?:[^"\\]|\\.)*)"', in_der_zeile) or [erster_eintrag]
+            # Einträge in einfachen oder ohne Anführungszeichen läse das Muster oben nicht
+            rest = re.sub(r'"(?:[^"\\]|\\.)*"', "", in_der_zeile)
+            assert not re.sub(r"[,\s]", "", rest), f"{datei.name}: {in_der_zeile}"
+            formen.append(argumente[0])
+            if argumente[0] == "CMD":
+                assert in_der_zeile, f"{datei.name}: CMD über mehrere Zeilen — hier nicht geprüft"
+                assert [a for a in argumente if re.search(r"\s", a)] == [], datei.name
+        # Eine Liste, die über die Zeile hinausläuft, träfe keines der beiden Muster
+        alle = len(re.findall(r"^ +test:", text, re.M))
+        assert len(formen) - vorher == alle, f"{datei.name}: ein Healthcheck wurde nicht gelesen"
+    assert set(formen) <= {"CMD", "CMD-SHELL"}, formen
+    assert len(formen) >= 6, formen
+
+
+def test_in_prod_startet_jeder_dienst_nach_einem_neustart_der_vm_wieder():
+    """Podman hat keinen Daemon; nach einem Neustart der VM startet podman-restart.service die
+    Container — vor Podman 5.8.2 nur die mit „restart: always“. Beobachtet mit 5.6.0: Mit
+    unless-stopped blieb der Stack trotz Dienst aus. Die Policy steht deshalb im PROD-Overlay
+    für alle drei Dienste, auch für die Datenbank aus compose.db.yaml."""
+    for name in ("nginx", "api", "postgres"):
+        dienst = _dienst("compose.prod.yaml", name)
+        assert dienst is not None, name
+        policy = re.findall(r"^    restart: (\S+)\s*$", _ohne_kommentare(dienst), re.M)
+        assert policy == ["always"], name
+
+
+def test_makefile_und_make_ps1_nennen_die_engine_nur_als_voreinstellung():
+    """Jeder Aufruf geht über die Variable. Ein ausgeschriebenes „docker …“ liefe unter
+    Podman ins Leere — oder, wo beide installiert sind, gegen die falsche Engine."""
+    ps1 = (
+        r'\$Engine = if \(\$env:CONTAINER_ENGINE\) \{ \$env:CONTAINER_ENGINE \} else \{ "docker" \}'
+    )
+    # Im Makefile gilt auch eine leere Variable als nicht gesetzt — wie an den anderen Stellen
+    makefile = r"CONTAINER_ENGINE := \$\(or \$\(CONTAINER_ENGINE\),docker\)"
+    for datei, voreinstellung, variable in (
+        ("Makefile", makefile, "$(CONTAINER_ENGINE)"),
+        ("make.ps1", ps1, "$Engine"),
+    ):
+        zeilen = _zeilen(datei)
+        gesetzt = [z for z in zeilen if re.fullmatch(voreinstellung, z.strip())]
+        assert len(gesetzt) == 1, f"{datei}: Voreinstellung docker nicht gefunden"
+        # Auch in Anführungszeichen: In PowerShell ist „& "docker" compose …“ ein Aufruf.
+        fest = [
+            z.strip() for z in zeilen if z not in gesetzt and re.search(r"\b(?:docker|podman)\b", z)
+        ]
+        assert fest == [], datei
+        vor_compose = [m for z in zeilen for m in re.findall(r"(\S+)[ \t]+compose(?=\s)", z)]
+        assert vor_compose and set(vor_compose) == {variable}, datei
+
+
+def _engine_attrappen(ordner: pathlib.Path) -> dict[str, str]:
+    """Zwei Attrappen, die ihren Namen und ihre Argumente ausgeben — und die Umgebung, in der
+    sie vorn im PATH stehen. Unter Windows als .cmd (make.ps1), sonst als Shell-Skript."""
+    for name in ("docker", "podman"):
+        if sys.platform == "win32":
+            (ordner / f"{name}.cmd").write_text(f"@echo {name} %*\r\n", encoding="ascii")
+        else:
+            (ordner / name).write_text(f'#!/bin/sh\necho "{name} $*"\n', encoding="utf-8")
+            (ordner / name).chmod(0o755)
+    umgebung = {**os.environ, "PATH": f"{ordner}{os.pathsep}{os.environ['PATH']}"}
+    # Auch MAKEFLAGS: Läuft die Suite selbst unter „make test CONTAINER_ENGINE=podman“, reicht
+    # make das Argument darin an jedes make weiter — auch an das dieser Tests.
+    for variable in ("CONTAINER_ENGINE", "MAKEFLAGS"):
+        umgebung.pop(variable, None)
+    return umgebung
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("make") is None, reason="kein make (Windows: make.ps1)"
+)
+@pytest.mark.parametrize(
+    ("argument", "umgebung", "erwartet"),
+    [
+        pytest.param([], {}, "docker", id="voreinstellung"),
+        pytest.param(["CONTAINER_ENGINE=podman"], {}, "podman", id="als-argument"),
+        pytest.param([], {"CONTAINER_ENGINE": "podman"}, "podman", id="aus-der-umgebung"),
+        pytest.param([], {"CONTAINER_ENGINE": ""}, "docker", id="leer"),
+    ],
+)
+def test_make_ruft_die_gewaehlte_engine(tmp_path, argument, umgebung, erwartet):
+    """„make ps“ besteht aus einem einzigen Compose-Aufruf: Was die Attrappe ausgibt, ist
+    genau der Befehl, den make gebildet hat."""
+    env = _engine_attrappen(tmp_path) | umgebung
+
+    lauf = subprocess.run(
+        ["make", "-s", "ps", *argument], cwd=REPO, env=env, capture_output=True, text=True
+    )
+
+    assert lauf.returncode == 0, lauf.stderr
+    assert lauf.stdout.strip() == f"{erwartet} {_COMPOSE_PS}"
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32" or shutil.which("powershell") is None, reason="make.ps1 braucht Windows"
+)
+@pytest.mark.parametrize(
+    ("gesetzt", "erwartet"),
+    [
+        pytest.param(None, "docker", id="voreinstellung"),
+        pytest.param("", "docker", id="leer"),
+        pytest.param("podman", "podman", id="aus-der-umgebung"),
+    ],
+)
+def test_make_ps1_ruft_die_gewaehlte_engine(tmp_path, gesetzt, erwartet):
+    """Dasselbe für den Windows-Weg: „.\\make.ps1 ps“ mit $env:CONTAINER_ENGINE."""
+    env = _engine_attrappen(tmp_path)
+    if gesetzt is not None:
+        env["CONTAINER_ENGINE"] = gesetzt
+
+    lauf = subprocess.run(
+        [*_PS_AUFRUF, str(REPO / "make.ps1"), "ps"],
+        cwd=REPO,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert lauf.returncode == 0, lauf.stderr
+    assert lauf.stdout.strip() == f"{erwartet} {_COMPOSE_PS}"

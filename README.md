@@ -54,7 +54,8 @@ Zug. Cloudflare meldet bei gestopptem Stack **521**, das ist erwartet.
 ## ⚡ Quickstart (< 15 Minuten)
 
 ### Voraussetzungen
-* Docker Engine & Docker Compose (V2)
+* Docker Engine & Docker Compose (V2) — oder Podman mit `docker-compose` als Compose-Werkzeug
+  (`CONTAINER_ENGINE=podman`, siehe [Entwickeln und Betreiben](#entwickeln-und-betreiben))
 * Python 3.13 oder 3.14 (Image und CI laufen auf 3.14) und `make` (auf Windows: PowerShell Wrapper `.\make.ps1 <target>`); für
   Lint und Tests einmalig `make install`
 * Für `make check`: Node.js 22+ und Edge oder Chrome — die Frontend-Tests laufen im
@@ -75,7 +76,7 @@ cp .env.example .env
 make dev
 ```
 
-Sobald der Command erfolgreich beendet ist, laufen alle 5 Docker-Container im Entwicklungsmodus.
+Sobald der Command erfolgreich beendet ist, laufen alle 5 Container im Entwicklungsmodus.
 
 ---
 
@@ -155,7 +156,7 @@ statt `make <target>`. Was ein Target genau ausführt, steht im [`Makefile`](Mak
 |---|---|---|---|
 | **Alles vor dem Abschluss einer Änderung** | `make check` | Lint, Unit-, Frontend- und API-Tests nacheinander; Ergebnis in der Konsole. Die CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) fährt dieselben Schritte bei jedem Push auf `main` und jedem Pull Request, dazu das Abdeckungs-Gate (80 %) und das Konfig-Gate; auf `main` zusätzlich die Integrationstests | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Lint und Typprüfung | `make lint` | ruff und mypy über `backend/` und `ops/governance.py` (Regeln: `backend/pyproject.toml`) | |
-| Unit-Tests | `make test` | `backend/tests/unit` — ohne Docker, Datenbank und Netz | |
+| Unit-Tests | `make test` | `backend/tests/unit` — ohne Container, Datenbank und Netz | |
 | API-Tests | `make test-db` | `backend/tests/api` gegen eine Wegwerf-PostgreSQL, die das Target selbst startet (`make test-db-down` stoppt sie) | |
 | Frontend-Verhaltenstests | `make test-frontend` | `frontend/tests/*.spec.js` im echten Browser, ohne Server; einmalig `make install-frontend` | [frontend/tests/README.md](frontend/tests/README.md), [ADR-0029](docs/adr/0029-frontend-verhaltenstests-mit-playwright.md) |
 | Integrationstests | `make test-integration` | `backend/tests/integration` gegen den ganzen DEV-Stack: Anmeldung über Keycloak, Versand bis zur Mail in Mailpit. Bricht ab, solange die `.env` auf einen echten Mailserver zeigt | [RUNBOOK](docs/RUNBOOK.md) 3b |
@@ -173,7 +174,7 @@ statt `make <target>`. Was ein Target genau ausführt, steht im [`Makefile`](Mak
 | Bewertung einer Lücke eintragen | `docs/governance/schwachstellen-bewertung.toml` ändern, dann `python ops/governance.py bericht` | `SCHWACHSTELLEN.md` neu geschrieben, ohne neuen Scan | Kopf der TOML-Datei |
 | Scan als Release-Gate | `make scan` | bricht ab, sobald ein Image einen Fund HIGH oder CRITICAL hat; braucht ein lokal installiertes `trivy` und kennt die Bewertungen nicht | Frage B10 im [Register](docs/open-questions.md) |
 
-`make governance` braucht Docker und Netz (gut 1 GB Download) und ist nach jeder Änderung an
+`make governance` braucht Docker oder Podman und Netz (gut 1 GB Download) und ist nach jeder Änderung an
 Abhängigkeiten oder Basis-Images fällig — `make test` erinnert daran.
 
 ### Entwickeln und Betreiben
@@ -184,6 +185,8 @@ Abhängigkeiten oder Basis-Images fällig — `make test` erinnert daran.
 | `make dev` / `make dev-down` | DEV-Stack bauen und starten (`--build --wait`) / stoppen |
 | `make logs SERVICE=api` | Logs eines Containers |
 | `make prod` | PROD-Konfiguration starten (NGINX, FastAPI, PostgreSQL-Container); `make prod-localdb` ist ein zweiter Name dafür |
+
+**Mit Podman statt Docker:** dieselben Targets mit `CONTAINER_ENGINE=podman` (außer `make scan`, das ein lokales Trivy aufruft und die Variable nicht liest) — `make dev CONTAINER_ENGINE=podman`, unter Windows vorher `$env:CONTAINER_ENGINE = "podman"`. Ohne die Variable rufen Makefile und Skripte `docker` auf. Was der Host unter Podman zusätzlich braucht (Compose-Werkzeug, Neustart-Dienst, rootless: Freigaben für CPU-Grenzen und die Ports 80/443) und was sich anders verhält, steht im [RUNBOOK](docs/RUNBOOK.md) 1b; was geprüft ist und was nicht, in [ADR-0033](docs/adr/0033-container-engine-docker-oder-podman.md).
 
 ---
 

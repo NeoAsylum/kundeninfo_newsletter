@@ -63,6 +63,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/de/1.1.0/) · Versionierun
 - **Coverage-Gate erweitert** auf `app/api` und `app/core` (bisher nur `app/domain`/`app/mail`): Autorisierung, OIDC/BFF-Session und der PII-Log-Filter zählen jetzt mit (Gate 80 %).
 - Veraltete Kommentare zum abgelösten IdP-Rollen-Modell korrigiert (`admin.py`, Migrations-Docstring 0003) und die Egress-Matrix um DNS (53) und NTP (123) ergänzt — Vollständigkeit für Firewall-Anträge.
 
+### Betrieb
+
+- **Der Stack läuft auch unter Podman** (ADR-0033; im Unternehmen des Auftraggebers läuft Podman statt Docker): `CONTAINER_ENGINE=podman` wählt die Engine in `Makefile`, `make.ps1`, `ops/backup.sh` und `ops/governance.py`; ohne die Variable bleibt es bei Docker. Compose-Werkzeug unter Podman ist `docker-compose` über `podman compose`.
+  - **Jedes bezogene Image nennt seine Registry** (`docker.io/library/postgres:…` statt `postgres:…`, Digests unverändert): Über `docker-compose` ergänzt Podman Kurznamen selbst zu Docker Hub. Bei direktem `podman build` oder `podman run` — so arbeiten podman-compose und der Generator — fragt es die `registries.conf` des Hosts; auf AlmaLinux brach so der Bau des Datenbank-Image ohne Terminal ab. Ein Test hält das fest.
+  - **Was der Host unter Podman braucht und was sich anders verhält, steht in RUNBOOK 1b** — vor allem: Ohne `podman-restart.service` kommt der Stack nach einem Neustart der VM nicht wieder; ohne Root-Rechte brauchen CPU-Grenzen und die Ports 80/443 je eine Freigabe, und NGINX sieht die Adresse des Clients nicht.
+  - **PROD startet mit `restart: always` statt `unless-stopped`** (`compose.prod.yaml`, alle drei Dienste): Podman vor 5.8.2 bringt nach einem Neustart der VM nur Container mit dieser Policy zurück (geprüft mit 5.6.0, die Grenze laut Versionshinweisen). Ein mit `stop` angehaltener PROD-Stack läuft damit nach einem Neustart der VM wieder — unter jeder Engine, unter Docker laut dessen Dokumentation schon nach einem Neustart des Docker-Dienstes; `down` hält ihn aus. Der Pilot bleibt bei `unless-stopped`.
+  - **Der Healthcheck der API steht in der Form `CMD-SHELL`:** Podman 5.6.0 zerlegte die Form `CMD` an Leerzeichen, der Container galt dort nie als gesund.
+  - Geprüft mit Podman 5.6.0 und 5.8.2 (AlmaLinux 9.7 und 9.8, rootless) und 6.1.4 (Podman-Maschine unter Windows), alles unter WSL 2; Gegenprobe unter Docker. Nicht geprüft: SELinux, firewalld, Podman vor 5.6, eine echte VM. Die Skripte der Pilot-VM (`deploy/vm/`) und die CI bleiben bei Docker.
+  - `make governance` fragt die Registry selbst, ob ein Basis-Image noch aktuell ist — `docker buildx` ist dafür nicht mehr nötig. Den Digest zum Anheben eines Pins nennt `python ops/governance.py digest <registry/name:tag>`.
+  - Die Cron-Beispiele rufen `ops/backup.sh` mit `sh` auf: Die Datei ist im Repository nicht als ausführbar markiert.
+
 ### Sicherheit
 
 - **Demo-Zugangsdaten aus dem öffentlichen Repo entfernt** (2026-08-12): Das früher im README dokumentierte Demo-Passwort ist rotiert und gescrubbt — Zugangsdaten nur noch über einen privaten Kanal (der alte Wert in der Git-Historie ist damit wertlos). Extern nachgemessen: altes Passwort abgelehnt, neues ok. Selbstregistrierung bleibt auf Betreiber-Entscheidung **offen** für den Demo-Betrieb; die `@demo.invalid`-Coderegel (Login → Admin) bleibt für Vorführungen und muss vor produktivem Betrieb aus dem Code fallen (RUNBOOK „Bewusst offene Türen").

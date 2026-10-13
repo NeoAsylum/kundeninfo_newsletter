@@ -41,5 +41,5 @@ Ein Change ist fertig, wenn:
 
 - Linux/Mac/CI: `make <target>` · Windows: `.\make.ps1 <target>` (identische Targets, Quelle der Wahrheit ist das Makefile).
 - Voraussetzungen und einmalige Installation (`make install`, `make install-frontend`): [README](README.md). Regeln für Frontend-Tests: [frontend/tests/README.md](frontend/tests/README.md).
-- Schneller Loop: `make test` (< 30 s, ohne Docker) → `make test-frontend` (Browser, ohne Docker) → `make test-db` (API-Tests) → vor Release `make test-integration`.
+- Schneller Loop: `make test` (< 30 s, ohne Container) → `make test-frontend` (Browser, ohne Container) → `make test-db` (API-Tests) → vor Release `make test-integration`.
 - Branch pro Arbeitspaket, kleine Commits, Merge nach grünem `make check`; `main` ist immer lauffähig.

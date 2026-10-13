@@ -8,6 +8,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Container-Engine: docker (Voreinstellung) oder podman - vorher $env:CONTAINER_ENGINE = "podman"
+# setzen (ADR-0033). Die Skripte unter ops/ lesen dieselbe Variable.
+$Engine = if ($env:CONTAINER_ENGINE) { $env:CONTAINER_ENGINE } else { "docker" }
 $DevFiles  = @("-f", "compose.yaml", "-f", "compose.db.yaml", "-f", "compose.dev.yaml")
 # PROD immer mit DB-Overlay: PostgreSQL als Container auf derselben VM (ADR-0030).
 $ProdFiles = @("-f", "compose.yaml", "-f", "compose.db.yaml", "-f", "compose.prod.yaml")
@@ -36,21 +39,21 @@ switch ($Target) {
         try { npm run install-browser } finally { Pop-Location }
     }
     "dev" {
-        docker compose @DevFiles up -d --build --wait
+        & $Engine compose @DevFiles up -d --build --wait
     }
     "dev-down" {
-        docker compose @DevFiles --profile test down
+        & $Engine compose @DevFiles --profile test down
     }
     "ps" {
-        docker compose @DevFiles ps
+        & $Engine compose @DevFiles ps
     }
     "logs" {
-        if ($Service) { docker compose @DevFiles logs -f $Service }
-        else { docker compose @DevFiles logs -f }
+        if ($Service) { & $Engine compose @DevFiles logs -f $Service }
+        else { & $Engine compose @DevFiles logs -f }
     }
     "prod" {
         $env:GIT_SHA = (git rev-parse --short HEAD)
-        docker compose @ProdFiles up -d --build --wait
+        & $Engine compose @ProdFiles up -d --build --wait
     }
     "prod-localdb" {
         # Zweiter Name von prod (alter Aufruf, bleibt erhalten).
@@ -77,20 +80,20 @@ switch ($Target) {
         try { npm test } finally { Pop-Location }
     }
     "test-db" {
-        docker compose @DevFiles --profile test up -d --wait postgres-test; Fail-IfError
+        & $Engine compose @DevFiles --profile test up -d --wait postgres-test; Fail-IfError
         Push-Location backend
         try { python -m pytest tests/api -q } finally { Pop-Location }
     }
     "test-db-down" {
-        docker compose @DevFiles --profile test rm -sf postgres-test
+        & $Engine compose @DevFiles --profile test rm -sf postgres-test
     }
     "test-integration" {
-        docker compose @DevFiles up -d --build --wait; Fail-IfError
+        & $Engine compose @DevFiles up -d --build --wait; Fail-IfError
         Push-Location backend
         try { python -m pytest tests/integration -q -m integration } finally { Pop-Location }
     }
     "seed" {
-        docker compose @DevFiles exec api python -m app.seed
+        & $Engine compose @DevFiles exec api python -m app.seed
     }
     "smoke" {
         python backend/scripts/smoke.py --base-url $BaseUrl
@@ -104,7 +107,7 @@ switch ($Target) {
     "governance" {
         # Untersucht wird, was hier gebaut wird: immer unter dem Tag local (ops/governance.py)
         $env:IMAGE_TAG = "local"
-        docker compose @DevFiles build; Fail-IfError
+        & $Engine compose @DevFiles build; Fail-IfError
         python ops/governance.py erzeuge
     }
     "check" {

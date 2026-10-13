@@ -1,29 +1,37 @@
 """Erzeugt die Unterlagen in docs/governance/: Stücklisten (SBOM), die lesbare Komponentenliste
 und das Ergebnis der Schwachstellenanalyse (RUNBOOK 5b, ADR-0026).
 
-    python ops/governance.py erzeuge   # liest die gebauten Images — braucht Docker und Netz
+    python ops/governance.py erzeuge   # liest die gebauten Images — braucht Docker oder
+                                       # Podman (CONTAINER_ENGINE, ADR-0033) und Netz
     python ops/governance.py bericht   # schreibt nur die beiden Markdown-Dokumente neu, ohne
-                                       # Docker (etwa nach einer Änderung an der Bewertung)
+                                       # Engine (etwa nach einer Änderung an der Bewertung)
+    python ops/governance.py digest docker.io/library/postgres:18-alpine
+                                       # der Digest, den die Registry heute unter dem Tag führt
 
-Nur Standardbibliothek. Kein Bind-Mount und kein Docker-Socket im Scanner: Ein Image geht als
-Archiv über die Standardeingabe in den Container, das Ergebnis kommt über die Standardausgabe
-zurück. Der Scan selbst läuft ohne Netz; ins Netz gehen das Laden des Scanner-Image und der
-Schwachstellen-Datenbank, die Installation des SBOM-Werkzeugs und die Abfrage, ob die Registry
-ein neueres Basis-Image führt.
+Nur Standardbibliothek. Kein Bind-Mount und kein Socket der Engine im Scanner: Ein Image geht
+als Archiv über die Standardeingabe in den Container, das Ergebnis kommt über die
+Standardausgabe zurück. Der Scan selbst läuft ohne Netz; ins Netz gehen das Laden des
+Scanner-Image und der Schwachstellen-Datenbank, die Installation des SBOM-Werkzeugs und die
+Abfrage, ob die Registry ein neueres Basis-Image führt.
 """
 
 import argparse
 import datetime
 import email.header
 import email.utils
+import http.client
 import io
 import json
+import os
 import pathlib
 import re
 import subprocess
 import sys
 import tarfile
 import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -34,10 +42,14 @@ BEWERTUNG = ZIEL / "schwachstellen-bewertung.toml"
 KOMPONENTEN_MD = ZIEL / "KOMPONENTEN.md"
 SCHWACHSTELLEN_MD = ZIEL / "SCHWACHSTELLEN.md"
 
+# docker (Voreinstellung) oder podman — dieselbe Variable wie in Makefile und make.ps1.
+ENGINE = os.environ.get("CONTAINER_ENGINE") or "docker"
+
 # Per Digest gepinnt: Im März 2026 lagen unter den Tags 0.69.4 bis 0.69.6 manipulierte Images
 # (GHSA-69fq-xp46-6x23); per Digest bezogene Images waren nicht betroffen.
 TRIVY = (
-    "aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa"
+    "docker.io/aquasec/trivy:0.75.0"
+    "@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa"
 )
 TRIVY_CACHE = "stoerungsinfo-trivy-cache"
 TRIVY_SCHALTER = (
@@ -356,9 +368,20 @@ def app_stueckliste(
     return roh
 
 
+NAME_DES_IMAGE = ("aquasecurity:trivy:RepoTag", "aquasecurity:trivy:Reference")
+
+
+def lokaler_name(image: str) -> str:
+    """Ein selbst gebautes Image liegt in keiner Registry. Podman führt es trotzdem unter
+    einer: gebaut mit „podman build“ unter localhost/, über die Docker-kompatible
+    Schnittstelle (docker-compose) unter docker.io/library/."""
+    return re.sub(r"^(?:localhost|docker\.io/library)/", "", image)
+
+
 def image_stueckliste(sbom: dict, name: str, image_id: str, versionen: dict) -> dict:
     """Die Stückliste eines Images, wie Trivy sie schreibt — mit vier Eingriffen: Sie nennt
-    das Image statt der Archivdatei, aus der Trivy es las; Herausgeber und Labels stehen
+    das Image statt der Archivdatei, aus der Trivy es las, und seinen Namen ohne die
+    Registry, unter der Podman ein selbst gebautes führt; Herausgeber und Labels stehen
     ohne E-Mail-Adresse da (Trivy nennt bei Betriebssystem-Paketen den Betreuer samt
     Adresse); der leere Abschnitt für Schwachstellen entfällt — sie stehen im Bericht, nicht
     hier; und was Trivy nicht sieht, weil es aus dem Quelltext gebaut ist (HAUPTKOMPONENTEN
@@ -371,6 +394,8 @@ def image_stueckliste(sbom: dict, name: str, image_id: str, versionen: dict) -> 
     wurzel |= {"name": f"stoerungsinfo-{name}", "version": image_id}
     for eigenschaft in wurzel.get("properties", []):  # Labels des Image, etwa „maintainer“
         eigenschaft["value"] = _ohne_adresse(eigenschaft.get("value", ""))
+        if eigenschaft.get("name") in NAME_DES_IMAGE:
+            eigenschaft["value"] = lokaler_name(eigenschaft["value"])
     for komponente in sbom.get("components", []):
         if {"2-clause", "license"} <= set(lizenzen(komponente)):
             kennung = NGINX_ORG_LIZENZ.get(komponente["name"], "BSD-2-Clause")
@@ -992,15 +1017,27 @@ def schwachstellen_md(scan: dict, bewertung: dict, app: dict, images: dict[str, 
     return "\n".join(teile) + "\n"
 
 
-# ---------- Docker ----------
+# ---------- Container-Engine ----------
 
 
-def docker(*argumente: str, eingabe: bytes | None = None) -> bytes:
-    lauf = subprocess.run(["docker", *argumente], input=eingabe, capture_output=True, check=False)
+def engine(*argumente: str, eingabe: bytes | None = None) -> bytes:
+    lauf = subprocess.run([ENGINE, *argumente], input=eingabe, capture_output=True, check=False)
     if lauf.returncode != 0:
         fehler = lauf.stderr.decode("utf-8", "replace")[-1500:]
-        raise SystemExit(f"FEHLER: docker {' '.join(argumente[:4])} …\n{fehler}")
+        raise SystemExit(f"FEHLER: {ENGINE} {' '.join(argumente[:4])} …\n{fehler}")
     return lauf.stdout
+
+
+def kurzform(image: str) -> str:
+    """Der Name, unter dem Docker Hub ein Image führt: ohne „docker.io/“ und „library/“.
+    Dockerfiles und Compose-Dateien schreiben die Registry aus, weil Podman Kurznamen je nach
+    Host anders auflöst (ADR-0033); die Unterlagen nennen weiter die geläufige Form."""
+    return re.sub(r"^docker\.io/(?:library/)?", "", image)
+
+
+def image_id(kennung: str) -> str:
+    """Docker nennt die ID mit „sha256:“ davor, die Kommandozeile von Podman ohne."""
+    return kennung if ":" in kennung else f"sha256:{kennung}"
 
 
 def image_name(name: str) -> str:
@@ -1015,22 +1052,61 @@ def basis_image(name: str) -> str:
     return re.findall(r"^FROM\s+(\S+)", text, re.M)[-1]
 
 
+# Was eine Registry unter einem Tag führen kann. Ohne die beiden Index-Arten lieferte sie
+# den Digest des Abbilds für eine einzelne Plattform — gepinnt ist der des Index.
+MANIFEST_ARTEN = (
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+)
+
+
+def _https(url: str, kopf: dict[str, str], methode: str = "GET") -> Any:
+    if not url.startswith("https://"):
+        raise ValueError(f"nur https: {url}")
+    anfrage = urllib.request.Request(url, headers=kopf, method=methode)
+    return urllib.request.urlopen(anfrage, timeout=20)
+
+
+def digest_in_der_registry(image: str) -> str | None:
+    """Der Digest, den die Registry heute unter „registry/name:tag“ führt — None, wenn sie es
+    nicht sagt. Gefragt wird die Registry selbst (HEAD auf das Manifest, bei Bedarf mit dem
+    anonymen Token, zu dem sie verweist): So geht es mit jeder Container-Engine."""
+    name, _, tag = image.rpartition(":")
+    host, _, pfad = name.partition("/")
+    if not (tag and pfad and "." in host):
+        return None
+    host = "registry-1.docker.io" if host == "docker.io" else host
+    url = f"https://{host}/v2/{pfad}/manifests/{tag}"
+    kopf = {"Accept": ", ".join(MANIFEST_ARTEN)}
+    try:
+        try:
+            antwort = _https(url, kopf, "HEAD")
+        except urllib.error.HTTPError as fehler:
+            if fehler.code != 401:
+                raise
+            verweis = dict(re.findall(r'(\w+)="([^"]*)"', fehler.headers["WWW-Authenticate"]))
+            abfrage = urllib.parse.urlencode({k: v for k, v in verweis.items() if k != "realm"})
+            with _https(f"{verweis['realm']}?{abfrage}", {}) as token:
+                kopf["Authorization"] = f"Bearer {json.load(token)['token']}"
+            antwort = _https(url, kopf, "HEAD")
+        with antwort:
+            return antwort.headers["Docker-Content-Digest"]
+    except (OSError, http.client.HTTPException, KeyError, TypeError, ValueError):
+        return None
+
+
 def basis_ist_aktuell(basis: str) -> bool | None:
     """Ob der gepinnte Digest noch der ist, den die Registry heute unter dem Tag führt —
-    None, wenn sich das nicht feststellen lässt (kein Netz, kein buildx)."""
+    None, wenn sich das nicht feststellen lässt (kein Netz, oder die Registry antwortet nicht)."""
     tag, _, digest = basis.partition("@")
-    lauf = subprocess.run(
-        ["docker", "buildx", "imagetools", "inspect", tag],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    heute = re.search(r"^Digest:\s+(\S+)", lauf.stdout, re.M)
-    return heute.group(1) == digest if lauf.returncode == 0 and heute and digest else None
+    heute = digest_in_der_registry(tag)
+    return heute == digest if heute and digest else None
 
 
 def scanne(image: str) -> tuple[dict, dict]:
-    """Trivy liest das Image als Archiv (docker save) — ohne Docker-Socket und ohne Netz.
+    """Trivy liest das Image als Archiv (save) — ohne Socket der Engine und ohne Netz.
     Zurück kommen der Bericht über Schwachstellen und die Stückliste (CycloneDX)."""
     befehl = (
         "cat > /tmp/image.tar && "
@@ -1040,10 +1116,10 @@ def scanne(image: str) -> tuple[dict, dict]:
         "--format cyclonedx --output /tmp/sbom.json >&2 && "
         "tar -c -C /tmp funde.json sbom.json"
     )
-    sichern = subprocess.Popen(["docker", "save", image], stdout=subprocess.PIPE)
+    sichern = subprocess.Popen([ENGINE, "save", image], stdout=subprocess.PIPE)
     lauf = subprocess.run(
         [
-            "docker",
+            ENGINE,
             "run",
             "--rm",
             "-i",
@@ -1078,7 +1154,7 @@ def scanne_stueckliste(stueckliste: dict) -> dict:
         "cat > /tmp/s.cdx.json && "
         f"trivy sbom {TRIVY_SCHALTER} --scanners vuln --format json /tmp/s.cdx.json"
     )
-    ausgabe = docker(
+    ausgabe = engine(
         "run", "--rm", "-i", "--network", "none", "-v", f"{TRIVY_CACHE}:/cache",
         "--entrypoint", "sh", TRIVY, "-c", befehl,
         eingabe=json.dumps(stueckliste).encode(),
@@ -1090,11 +1166,11 @@ def datenbank_laden() -> dict:
     """Lädt die Schwachstellen-Datenbanken in das Cache-Volume (dafür braucht Trivy Netz)
     und meldet ihren Stand."""
     for schalter in ("--download-db-only", "--download-java-db-only"):
-        docker(
+        engine(
             "run", "--rm", "-v", f"{TRIVY_CACHE}:/cache", TRIVY, "image", "--cache-dir", "/cache",
             schalter, "--no-progress", "--skip-version-check", "--disable-telemetry",
         )  # fmt: skip
-    ausgabe = docker(
+    ausgabe = engine(
         "run", "--rm", "--network", "none", "-v", f"{TRIVY_CACHE}:/cache", TRIVY,
         "version", "--cache-dir", "/cache", "--format", "json",
     )  # fmt: skip
@@ -1109,9 +1185,9 @@ def app_rohdaten(image: str) -> tuple[dict, list[dict]]:
         f"--disable-pip-version-check cyclonedx-bom=={CYCLONEDX_BOM} >&2 && "
         '/tmp/werkzeug/bin/cyclonedx-py environment --sv 1.6 --of JSON "$(command -v python)"'
     )
-    roh = json.loads(docker("run", "--rm", "--entrypoint", "sh", image, "-c", befehl))
+    roh = json.loads(engine("run", "--rm", "--entrypoint", "sh", image, "-c", befehl))
     metadaten = json.loads(
-        docker(
+        engine(
             "run",
             "--rm",
             "-i",
@@ -1157,7 +1233,7 @@ def erzeuge() -> None:
         image_name(n)
         for n in IMAGES
         if subprocess.run(
-            ["docker", "image", "inspect", image_name(n)], capture_output=True, check=False
+            [ENGINE, "image", "inspect", image_name(n)], capture_output=True, check=False
         ).returncode
         != 0
     ]
@@ -1179,7 +1255,7 @@ def erzeuge() -> None:
     stand: dict = {
         "erzeugt": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "code": code,
-        "werkzeug": {"name": "Trivy", "version": werkzeug["Version"], "image": TRIVY},
+        "werkzeug": {"name": "Trivy", "version": werkzeug["Version"], "image": kurzform(TRIVY)},
         "datenbank": {
             "schwachstellen": werkzeug["VulnerabilityDB"]["UpdatedAt"],
             "java": werkzeug["JavaDB"]["UpdatedAt"],
@@ -1200,7 +1276,8 @@ def erzeuge() -> None:
         image = image_name(name)
         print(f"{image} untersuchen …", flush=True)
         bericht, sbom = scanne(image)
-        beschreibung = json.loads(docker("image", "inspect", image, "--format", "{{json .}}"))
+        beschreibung = json.loads(engine("image", "inspect", image, "--format", "{{json .}}"))
+        kennung = image_id(beschreibung["Id"])
         umgebung = dict(e.split("=", 1) for e in beschreibung["Config"]["Env"] or [])
         basis = basis_image(name)
         versionen = {k: v for k, v in umgebung.items() if k.endswith("_VERSION")}
@@ -1208,8 +1285,8 @@ def erzeuge() -> None:
         betriebssystem = bericht.get("Metadata", {}).get("OS", {})
         stand["images"][name] = {
             "image": image,
-            "id": beschreibung["Id"],
-            "basis": basis,
+            "id": kennung,
+            "basis": kurzform(basis),
             "basis_aktuell": basis_ist_aktuell(basis),
             "plattform": f"{beschreibung.get('Os', '?')}/{beschreibung.get('Architecture', '?')}",
             "os": f"{betriebssystem.get('Family', '?')} {betriebssystem.get('Name', '')}".strip(),
@@ -1218,7 +1295,7 @@ def erzeuge() -> None:
         funde += funde_aus_trivy(name, bericht)
         schreibe_json(
             ZIEL / f"stoerungsinfo-image-{name}.cdx.json",
-            image_stueckliste(sbom, name, beschreibung["Id"], versionen),
+            image_stueckliste(sbom, name, kennung, versionen),
         )
 
     print("Stückliste der Anwendung …", flush=True)
@@ -1240,7 +1317,7 @@ def erzeuge() -> None:
             fund["ort"] = traeger.get((name, fund["installiert"]), fund["ort"])
 
     vorher = json.loads(APP_SBOM.read_text(encoding="utf-8"))
-    basis_ohne_digest = basis_image("api").split("@")[0]
+    basis_ohne_digest = kurzform(basis_image("api")).split("@")[0]
     kennung = code["commit"] + ("" if code["unveraendert"] else "-dirty")
     schreibe_json(APP_SBOM, app_stueckliste(roh, metadaten, vorher, kennung, basis_ohne_digest))
     schreibe_json(SCAN, {"stand": stand, "funde": sortiert(funde)})
@@ -1267,9 +1344,21 @@ def bericht_schreiben() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("befehl", choices=["erzeuge", "bericht"])
-    befehl = parser.parse_args().befehl
-    erzeuge() if befehl == "erzeuge" else bericht_schreiben()
+    parser.add_argument("befehl", choices=["erzeuge", "bericht", "digest"])
+    parser.add_argument("image", nargs="?", default="", help="nur für digest: registry/name:tag")
+    aufruf = parser.parse_args()
+    if aufruf.befehl == "digest":
+        digest = digest_in_der_registry(aufruf.image)
+        if not digest:
+            raise SystemExit(
+                f"FEHLER: Kein Digest für „{aufruf.image}“ — erwartet ist registry/name:tag, "
+                "etwa docker.io/library/postgres:18-alpine, und Netz zur Registry."
+            )
+        print(digest)
+    elif aufruf.befehl == "erzeuge":
+        erzeuge()
+    else:
+        bericht_schreiben()
     return 0
 
 

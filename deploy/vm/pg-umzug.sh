@@ -23,7 +23,7 @@ PROJEKT="${COMPOSE_PROJECT_NAME:-stoerungsinfo}"
 ALT_VOLUME="${PROJEKT}_db_data"
 NEU_VOLUME="${PROJEKT}_pg_data"
 # Der letzte Stand der 16er-Reihe (16.15); er liest jedes Volume, das ein 16.x angelegt hat.
-ALT_IMAGE="postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+ALT_IMAGE="docker.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
 SICHERUNG="${BACKUP_DIR:-/var/backups/stoerungsinfo}"
 HELFER="${PROJEKT}-pg16-umzug"
 STAMP="$(date +%Y-%m-%d_%H%M)"

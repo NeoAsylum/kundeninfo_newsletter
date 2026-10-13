@@ -40,7 +40,7 @@ services:
       start_period: 60s
 
   mailpit:
-    image: axllent/mailpit:v1.31.5@sha256:94f6b70c1436defae6799d9ac7ff0eeff9540465b842026d5cdb018f1c0234ea
+    image: docker.io/axllent/mailpit:v1.31.5@sha256:94f6b70c1436defae6799d9ac7ff0eeff9540465b842026d5cdb018f1c0234ea
     networks: [appnet]
     ports:
       - "8025:8025"   # Web-UI + REST-API (Test-Assertions)
@@ -55,7 +55,7 @@ services:
   # Läuft nur mit --profile test, nie im normalen Stack.
   postgres-test:
     # Derselbe Stand wie deploy/postgres/Dockerfile (ein Test hält beide zusammen)
-    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    image: docker.io/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     profiles: ["test"]
     environment:
       POSTGRES_DB: newsletter_test
