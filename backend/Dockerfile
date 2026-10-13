@@ -1,19 +1,19 @@
-# python:3.12-slim, per Digest gepinnt (Plan 9.7); Aktualisierung: RUNBOOK "Image-Rebuild"
-FROM python:3.12-slim@sha256:46cb7cc2877e60fbd5e21a9ae6115c30ace7a077b9f8772da879e4590c18c2e3
+# python:3.14.8-slim, per Digest gepinnt (Plan 9.7). Nicht älter als 3.14.5: Bis 3.14.4
+# lief ein inkrementeller Garbage Collector, der unter Last Speicher band.
+FROM python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 ARG APP_VERSION=dev
-ARG GIT_SHA=unknown
-ENV APP_VERSION=${APP_VERSION} GIT_SHA=${GIT_SHA}
+ENV APP_VERSION=${APP_VERSION}
 
 RUN groupadd -r app && useradd -r -g app -m -d /home/app app
 
 WORKDIR /app
 # requirements.txt ist die menschenlesbare Quelle; requirements.lock wird per
-# pip-compile --generate-hashes daraus erzeugt (ADR-0026, RUNBOOK "Lockfile & SBOM").
+# pip-compile --generate-hashes daraus erzeugt (ADR-0026, RUNBOOK 5b).
 # --require-hashes installiert ausschließlich exakt gepinnte, verifizierte Artefakte.
 COPY requirements.txt requirements.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock
@@ -21,6 +21,11 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY alembic.ini ./
 COPY app ./app
 COPY scripts ./scripts
+
+# Erst hier: Der Wert ändert sich mit jedem Commit — weiter oben würfe er den Cache der
+# Abhängigkeits-Schicht bei jedem Build weg.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
 
 USER app
 EXPOSE 8000

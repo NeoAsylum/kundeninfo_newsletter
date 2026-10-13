@@ -1,12 +1,18 @@
-# Laufzeit-Abhängigkeiten (einzige Quelle; Lockfile via pip-compile ist Erweiterungspunkt)
-fastapi>=0.115
-uvicorn[standard]>=0.32
-pydantic-settings>=2.6
-SQLAlchemy[asyncio]>=2.0.36
-psycopg[binary]>=3.2
-alembic>=1.14
-Authlib>=1.3.2
-httpx>=0.27
-aiosmtplib>=3.0
-Jinja2>=3.1
-cryptography>=43
+# Laufzeit-Abhängigkeiten (menschenlesbare Quelle; daraus entsteht requirements.lock, RUNBOOK 5b)
+# Die Untergrenzen nennen den Stand, mit dem zuletzt getestet und ausgeliefert wurde.
+fastapi>=0.143.0
+uvicorn[standard]>=0.54.0
+pydantic-settings>=2.15.0
+# pydantic wird direkt importiert (api/schemas.py).
+pydantic>=2.14.1
+# Das Extra [asyncio] bringt greenlet mit — seit SQLAlchemy 2.1 nur noch darüber.
+SQLAlchemy[asyncio]>=2.1.4
+psycopg[binary]>=3.3.6
+# nie mit einem älteren Alembic paaren: erst 1.19.2 kennt SQLAlchemy 2.1
+alembic>=1.20.0
+# ab 1.7.3 prüft joserfc die Typen der Claims (iss als Liste, sub als Zahl)
+joserfc>=1.7.5
+httpx>=0.28.1
+aiosmtplib>=5.1.3
+Jinja2>=3.1.6
+cryptography>=50.0.2

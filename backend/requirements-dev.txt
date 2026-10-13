@@ -1,5 +1,10 @@
-pytest>=8.3
-pytest-asyncio>=0.24
-pytest-cov>=6.0
-ruff>=0.8
-mypy>=1.13
+# Testwerkzeuge, exakt gepinnt: CI und Entwicklerrechner prüfen mit denselben Versionen
+# dieser sechs (was sie selbst nachziehen, ist nicht gepinnt).
+# Anheben: Version hier ändern, `make install`, dann `make check`.
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+# kommt mit pytest-cov; eigens gepinnt, weil mit ihm die gemessene Abdeckung wandern kann
+coverage==7.16.2
+ruff==0.17.0
+mypy==2.4.0

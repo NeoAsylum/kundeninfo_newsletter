@@ -8,3 +8,5 @@
 **/.coverage
 docs
 *.md
+frontend/tests
+**/node_modules

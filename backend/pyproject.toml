@@ -1,7 +1,9 @@
 # Nur Tooling-Konfiguration — Abhängigkeiten leben in requirements*.txt (eine Wahrheit).
 
 [tool.ruff]
-target-version = "py312"
+# Die älteste Python-Version, auf der der Code laufen muss: Entwicklerrechner ab 3.13,
+# Image und CI auf 3.14 (backend/Dockerfile).
+target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]
@@ -9,12 +11,13 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: Tests gegen den echten Compose-Stack (make test-integration)",
 ]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 ignore_missing_imports = true
 check_untyped_defs = true
 
