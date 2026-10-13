@@ -14,9 +14,9 @@ abgestürzter Prozess hinterlässt einen stehengebliebenen Heartbeat.
 import asyncio
 import contextlib
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.clock import utcnow
@@ -39,6 +39,8 @@ log = logging.getLogger(__name__)
 # Ausnahme würde ein erreichtes Tageslimit (Gmail: "550 5.4.5 Daily user sending
 # limit exceeded") alle restlichen Empfänger endgültig als 'failed' abschreiben —
 # die Mails wären verloren, obwohl sie am nächsten Tag zustellbar wären.
+# Gemeint ist das Limit des ANBIETERS. Beim eigenen Tageslimit (SMTP_MAX_PER_DAY,
+# ADR-0032) ist 'failed' dagegen gewollt, siehe _fail_open_over_limit.
 _QUOTA_HINTS = (
     "5.4.5",  # Gmail: Daily user sending limit exceeded
     "4.5.3",  # zu viele Empfänger, später erneut
@@ -66,6 +68,15 @@ def classify_smtp_error(exc: Exception) -> str:
     return "transient"
 
 
+def _due(now: datetime) -> ColumnElement[bool]:
+    """Fällige Empfänger: 'pending' oder 'retry_wait' mit abgelaufenem Backoff."""
+    return or_(
+        DispatchRecipient.status == RecipientStatus.pending,
+        (DispatchRecipient.status == RecipientStatus.retry_wait)
+        & (DispatchRecipient.next_attempt_at <= now),
+    )
+
+
 class OutboxWorker:
     def __init__(
         self,
@@ -82,7 +93,14 @@ class OutboxWorker:
         self._stop.set()
 
     async def run(self) -> None:
-        log.info("Outbox-Worker gestartet (Poll-Intervall %ss)", self._s.worker_poll_interval_s)
+        # Das Limit steht in der Startzeile, damit ein still fehlendes auffällt: Die
+        # Voreinstellung ist 0, und ein vertippter Variablenname ändert daran nichts.
+        limit = self._s.smtp_max_per_day
+        log.info(
+            "Outbox-Worker gestartet (Poll-Intervall %ss, %s)",
+            self._s.worker_poll_interval_s,
+            f"Tageslimit: {limit} Mails in 24 Stunden" if limit > 0 else "kein Tageslimit",
+        )
         while not self._stop.is_set():
             try:
                 await self.tick()
@@ -194,18 +212,10 @@ class OutboxWorker:
             await self._send_batch(dispatch_id, due, subject, html, text)
 
     async def _due_recipients(self, dispatch_id: int) -> list[int]:
-        now = utcnow()
         async with self._sm() as session:
             rows = await session.execute(
                 select(DispatchRecipient.id)
-                .where(
-                    DispatchRecipient.dispatch_id == dispatch_id,
-                    or_(
-                        DispatchRecipient.status == RecipientStatus.pending,
-                        (DispatchRecipient.status == RecipientStatus.retry_wait)
-                        & (DispatchRecipient.next_attempt_at <= now),
-                    ),
-                )
+                .where(DispatchRecipient.dispatch_id == dispatch_id, _due(utcnow()))
                 .order_by(DispatchRecipient.id)
                 .limit(self._s.smtp_batch_size)
             )
@@ -221,6 +231,14 @@ class OutboxWorker:
     async def _send_batch(
         self, dispatch_id: int, recipient_ids: list[int], subject: str, html: str, text: str
     ) -> None:
+        # Tageslimit (SMTP_MAX_PER_DAY, ADR-0032): Der Stand kommt je Batch neu aus der
+        # DB und wird im Batch mitgezählt; geprüft wird vor JEDER Mail. Ist das Limit
+        # schon zu Beginn erreicht, wird gar keine SMTP-Verbindung geöffnet.
+        limit = self._s.smtp_max_per_day
+        sent_24h = await self._sent_last_24h() if limit > 0 else 0
+        if 0 < limit <= sent_24h:
+            await self._fail_open_over_limit(dispatch_id)
+            return
         try:
             smtp = await self.mailer.open()
         except Exception as exc:
@@ -236,6 +254,15 @@ class OutboxWorker:
                 60.0 / self._s.smtp_max_per_minute if self._s.smtp_max_per_minute > 0 else 0.0
             )
             for recipient_id in recipient_ids:
+                if 0 < limit <= sent_24h:
+                    # Der mitgezählte Stand kann zu hoch sein: Während der Batch läuft
+                    # (Pause der Drossel, langsamer Server), fallen ältere Mails aus dem
+                    # 24-Stunden-Fenster. Abschreiben ist endgültig — deshalb vorher
+                    # einmal neu aus der DB lesen und mit diesem Stand weitermachen.
+                    sent_24h = await self._sent_last_24h()
+                    if limit <= sent_24h:
+                        await self._fail_open_over_limit(dispatch_id)
+                        break
                 # Nachladen + Nachrichtenbau gehören MIT ins Fehlerhandling: Eine
                 # deterministisch kaputte Adresse (z. B. Headerzeichen aus dem IdP)
                 # würde sonst nie auf failed laufen und den Auftrag ewig in
@@ -272,11 +299,69 @@ class OutboxWorker:
                     )
                 else:
                     await self._record_sent(recipient_id)
+                    sent_24h += 1  # nur Übergebenes zählt, Fehlversuche nicht
                 await self._heartbeat(dispatch_id)
                 if min_interval:
                     await asyncio.sleep(min_interval)
         finally:
             await self.mailer.close(smtp)
+
+    async def _sent_last_24h(self) -> int:
+        """Stand fürs Tageslimit: 'sent'-Zeilen der letzten 24 Stunden über ALLE Aufträge,
+        aus der DB — ein Neustart setzt ihn nicht zurück. Umgeleitete Mails
+        (MAIL_REDIRECT_TO) zählen mit, weil auch sie 'sent' werden.
+
+        Gezählt ist damit, was der Worker als übergeben VERMERKEN konnte — nicht, was der
+        Server angenommen hat. Geht nach der Annahme die Bestätigung verloren (die Antwort
+        kommt nicht vor dem Timeout, die Verbindung bricht nach DATA ab, das DB-Update
+        scheitert, der Prozess stirbt), ist die Mail zugestellt, aber nicht gezählt. Für
+        den Worker gilt ihr Empfänger als nicht beliefert: Er wird nach den üblichen Regeln
+        erneut versucht (Retry mit Backoff, nächster Tick, Wiederanlauf nach einem
+        Absturz), solange das Limit nicht erreicht ist."""
+        since = utcnow() - timedelta(hours=24)
+        async with self._sm() as session:
+            count: int = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(DispatchRecipient)
+                    .where(
+                        DispatchRecipient.status == RecipientStatus.sent,
+                        DispatchRecipient.sent_at >= since,
+                    )
+                )
+            ).scalar_one()
+            return count
+
+    async def _fail_open_over_limit(self, dispatch_id: int) -> None:
+        """Tageslimit erreicht: ALLE noch offenen Empfänger des Auftrags endgültig auf
+        'failed' — 'pending' wie 'retry_wait', fällig oder nicht. Kein Retry, kein
+        Nachholen am Folgetag. Danach ist nichts mehr offen: Der Auftrag schließt im
+        selben Tick ab, und es bleibt bei einer Warnung je Auftrag. attempts bleibt
+        unverändert, denn das Abschreiben ist kein Sendeversuch."""
+        limit = self._s.smtp_max_per_day
+        async with self._sm() as session:
+            result = await session.execute(
+                update(DispatchRecipient)
+                .where(
+                    DispatchRecipient.dispatch_id == dispatch_id,
+                    DispatchRecipient.status.in_(
+                        (RecipientStatus.pending, RecipientStatus.retry_wait)
+                    ),
+                )
+                .values(
+                    status=RecipientStatus.failed,
+                    next_attempt_at=None,
+                    last_error=f"Tageslimit erreicht (SMTP_MAX_PER_DAY={limit}): nicht gesendet",
+                )
+            )
+            await session.commit()
+        # Nur Zahlen: Empfängeradressen gehören nicht ins Log (ADR-0014).
+        log.warning(
+            "Versand %s: Tageslimit erreicht (SMTP_MAX_PER_DAY=%s) — %s Empfänger nicht gesendet",
+            dispatch_id,
+            limit,
+            result.rowcount,  # type: ignore[attr-defined]
+        )
 
     async def _record_sent(self, recipient_id: int) -> None:
         async with self._sm() as session:

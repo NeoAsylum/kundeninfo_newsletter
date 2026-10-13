@@ -2,8 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import SessionDep, SettingsDep
 from app.core.oidc import OidcError
@@ -22,8 +23,19 @@ router = APIRouter()
 
 
 def _safe_next(next_url: str | None) -> str:
-    """Nur relative Pfade — verhindert Open-Redirect."""
-    if next_url and next_url.startswith("/") and not next_url.startswith("//"):
+    """Nur relative Pfade — verhindert Open-Redirect.
+
+    Auch Backslash und Steuerzeichen fallen durch: Browser lesen `/\\host` wie `//host`
+    und streichen Tab/Zeilenumbruch aus URLs. RedirectResponse kodiert diese Zeichen
+    zwar ohnehin — darauf soll sich die Prüfung aber nicht verlassen müssen.
+    """
+    if (
+        next_url
+        and next_url.startswith("/")
+        and not next_url.startswith("//")
+        and "\\" not in next_url
+        and not any(ord(zeichen) < 0x20 or ord(zeichen) == 0x7F for zeichen in next_url)
+    ):
         return next_url
     return "/abos.html"
 
@@ -34,9 +46,19 @@ async def login(
     settings: SettingsDep,
     next: str | None = None,
     prompt: str | None = None,
-) -> RedirectResponse:
+) -> Response:
     oidc = request.app.state.oidc
-    url, state_payload = await oidc.build_authorize_redirect(prompt=prompt)
+    try:
+        url, state_payload = await oidc.build_authorize_redirect(prompt=prompt)
+    except OidcError as exc:
+        log.warning("OIDC-Login nicht möglich: %s", exc)
+        return JSONResponse(
+            {
+                "detail": "Anmeldung derzeit nicht möglich (IdP-Kommunikation).",
+                "code": "OIDC_ERROR",
+            },
+            status_code=502,
+        )
     state_payload["next"] = _safe_next(next)
     response = RedirectResponse(url, status_code=302)
     response.set_cookie(
@@ -85,8 +107,17 @@ async def callback(
             status_code=502,
         )
 
-    await jit_upsert(session, identity, settings)
-    await session.commit()
+    try:
+        await jit_upsert(session, identity, settings)
+        await session.commit()
+    except IntegrityError:
+        # Zwei gleichzeitige ERST-Logins derselben Person (z. B. zwei Tabs): Beide sehen
+        # noch keine Zeile, der zweite INSERT verliert am Unique-Key. Die Zeile existiert
+        # jetzt — der zweite Anlauf nimmt den Update-Pfad.
+        await session.rollback()
+        log.info("JIT-Anlage kollidierte mit parallelem Login — wird wiederholt")
+        await jit_upsert(session, identity, settings)
+        await session.commit()
 
     response = RedirectResponse(_safe_next(state_data.get("next")), status_code=302)
     response.set_cookie(

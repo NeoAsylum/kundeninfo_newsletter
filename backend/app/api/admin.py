@@ -7,8 +7,9 @@ kein Abbruch (Erweiterungspunkt cancel).
 
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -19,6 +20,7 @@ from app.api.deps import (
 )
 from app.api.errors import ApiError
 from app.api.schemas import (
+    DispatchCreate,
     DispatchDetailOut,
     DispatchDraft,
     DispatchOut,
@@ -76,14 +78,68 @@ async def preview(draft: DispatchDraft, session: SessionDep, settings: SettingsD
     return PreviewOut(subject=subject, html=html)
 
 
+def _same_message(dispatch: Dispatch, draft: DispatchCreate) -> bool:
+    """Gespeichert sind nur der fertige Betreff („[PRÄFIX] Verteiler: Titel“) und der Text.
+    Der Titel wird deshalb als ENDE des Betreffs verglichen. Das übersteht ein Umbenennen
+    des Verteilers, erkennt aber nicht, wenn dem Titel nur ein vorderes Stück fehlt, das
+    auf „: “ endet (gespeichert „Login: Ausfall“, neu „Ausfall“) — siehe ADR-0031."""
+    return (
+        dispatch.topic_id == draft.topic_id
+        and dispatch.severity.value == draft.severity
+        and dispatch.body == draft.body
+        and dispatch.subject.endswith(f": {draft.title}")
+    )
+
+
+async def _existing_dispatch(session: AsyncSession, draft: DispatchCreate) -> DispatchOut | None:
+    """Der Versand, der unter dem Schlüssel dieses Aufrufs schon angelegt ist (ADR-0031)."""
+    if draft.idempotency_key is None:
+        # Ohne Schlüssel gibt es nichts wiederzuerkennen — und `== None` hieße in der
+        # Abfrage unten IS NULL, träfe also jeden Versand ohne Schlüssel.
+        return None
+    row = (
+        await session.execute(
+            select(Dispatch, Topic.name)
+            .join(Topic, Topic.id == Dispatch.topic_id)
+            .where(Dispatch.idempotency_key == draft.idempotency_key)
+        )
+    ).first()
+    if row is None:
+        return None
+    dispatch, topic_name = row
+    if not _same_message(dispatch, draft):
+        # Nie stillschweigend den anderen Versand zurückgeben: Der Admin hielte die
+        # geänderte Meldung für verschickt.
+        raise ApiError(
+            409,
+            "IDEMPOTENCY_KEY_REUSED",
+            f"Unter dem Schlüssel dieser Anfrage besteht bereits Versand {dispatch.id} "
+            "mit anderem Inhalt — die jetzt übermittelte Meldung wurde nicht angelegt",
+        )
+    counts = await _recipient_counts(session, [dispatch.id])
+    return _to_out(dispatch, topic_name, counts[dispatch.id])
+
+
 @router.post("/dispatches", status_code=201, response_model=DispatchOut)
 async def create_dispatch(
-    draft: DispatchDraft,
+    draft: DispatchCreate,
+    response: Response,
     session: SessionDep,
     settings: SettingsDep,
     user: CurrentUserDep,
 ) -> DispatchOut:
-    """Legt Auftrag + Empfänger-Snapshot in EINER Transaktion an (Outbox, Plan 6.3)."""
+    """Legt Auftrag + Empfänger-Snapshot in EINER Transaktion an (Outbox, Plan 6.3).
+
+    Mit `idempotency_key` ist der Aufruf wiederholbar (ADR-0031): Gehört der Schlüssel
+    schon zu einem Versand, wird nichts angelegt und dieser Versand mit 200 geliefert —
+    VOR den Prüfungen für einen neuen Versand, denn der Verteiler kann inzwischen
+    deaktiviert, umbenannt oder ohne Empfänger sein.
+    """
+    existing = await _existing_dispatch(session, draft)
+    if existing is not None:
+        response.status_code = 200
+        return existing
+
     topic = await get_topic(session, draft.topic_id)
     severity = Severity(draft.severity)
     recipients = await resolve_recipient_users(session, topic)
@@ -97,9 +153,21 @@ async def create_dispatch(
         body=draft.body,
         recipient_count=len(recipients),
         created_by_user_id=user.id,
+        idempotency_key=draft.idempotency_key,
     )
     session.add(dispatch)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Ein gleichzeitiger Aufruf mit demselben Schlüssel war schneller: Die Abfrage
+        # oben sah seinen Versand noch nicht, unser INSERT hat am eindeutigen Index auf
+        # sein COMMIT gewartet und ist daran gescheitert. Jetzt ist sein Versand lesbar.
+        await session.rollback()
+        existing = await _existing_dispatch(session, draft)
+        if existing is None:
+            raise  # kein Versand zum Schlüssel: der Verstoß hat eine andere Ursache
+        response.status_code = 200
+        return existing
     session.add_all(
         DispatchRecipient(dispatch_id=dispatch.id, user_id=r.id, email=r.email) for r in recipients
     )

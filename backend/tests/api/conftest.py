@@ -86,7 +86,7 @@ def make_user(app):
     ) -> User:
         """admin=True setzt das im Portal vergebene Kennzeichen (ADR-0022) — unabhängig
         davon, welche Rollen `auth_headers` ins Cookie schreibt. Genau diese Trennung
-        muss testbar sein: Cookie-Rolle und DB-Kennzeichen autorisieren beide."""
+        muss testbar sein: Nur das DB-Kennzeichen autorisiert, eine Rolle im Cookie nicht."""
         async with app.state.sessionmaker() as session:
             user = User(
                 oidc_sub=sub,

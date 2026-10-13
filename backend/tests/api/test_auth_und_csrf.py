@@ -1,3 +1,7 @@
+from app.core.oidc import OidcClient
+from tests.fake_idp import FakeIdp
+
+
 async def test_me_ohne_session_401(client):
     response = await client.get("/api/v1/me")
     assert response.status_code == 401
@@ -47,11 +51,15 @@ async def test_healthz_offen(client):
     assert "version" in response.json()
 
 
-async def test_auth_logout_post(client):
-    """Logout ist POST + CSRF-Header (kein Drive-by-Logout per Link)."""
+async def test_auth_logout_post(client, app, api_settings):
+    """Logout ist POST + CSRF-Header (kein Drive-by-Logout per Link). Ist der IdP dabei
+    nicht erreichbar, endet die Session trotzdem — es geht zur Startseite des Portals."""
+    idp = FakeIdp(api_settings)
+    idp.down = True
+    app.state.oidc = OidcClient(api_settings, transport=idp.transport)
     response = await client.post("/auth/logout", headers={"X-Requested-With": "fetch"})
     assert response.status_code == 200
-    assert response.json()["logout_url"].endswith("/")
+    assert response.json()["logout_url"] == "http://testserver/"
     assert 'session=""' in response.headers.get("set-cookie", "")
 
 

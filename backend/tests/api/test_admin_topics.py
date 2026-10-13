@@ -176,6 +176,34 @@ async def test_doppelter_slug_und_doppelter_name_409(client, app, auth_headers, 
         await _aufraeumen(app, SLUG, "test-verteiler-zwei", "test-verteiler-drei")
 
 
+async def test_name_mit_zeilenumbruch_422(client, app, auth_headers, make_user):
+    """Der Name steht im Betreff jeder Mail. Mit Zeilenumbruch ließe sich keine einzige
+    Mail des Verteilers bauen — der Versand liefe für alle Empfänger auf 'failed'."""
+    await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
+    headers = auth_headers(*ADMIN)
+    try:
+        angelegt = await _anlegen(client, headers, name="Zeile eins\nZeile zwei")
+        assert angelegt.status_code == 422
+        assert angelegt.json()["code"] == "VALIDATION_ERROR"
+        assert "Zeilenumbrüche" in angelegt.json()["detail"]
+        assert SLUG not in await _liste(client, headers)
+
+        umbenannt = await client.patch(
+            "/api/v1/admin/topics/kap", headers=headers, json={"name": "KAP\r\nBcc: x@y.z"}
+        )
+        assert umbenannt.status_code == 422
+        assert (await _liste(client, headers))["kap"]["name"] == "KAP Störungsmeldungen"
+    finally:
+        await _aufraeumen(app, SLUG)
+        # Seed-Verteiler überleben clean_db: Schlüge die Prüfung oben fehl, trügen sonst
+        # alle folgenden Tests den kaputten Namen mit.
+        async with app.state.sessionmaker() as session:
+            await session.execute(
+                text("UPDATE topics SET name = 'KAP Störungsmeldungen' WHERE id = 'kap'")
+            )
+            await session.commit()
+
+
 async def test_ungueltige_slugs_422(client, app, auth_headers, make_user):
     """Der Slug steht in URLs und Fremdschlüsseln und ist nachträglich nicht änderbar —
     deshalb hält das Muster ihn schon bei der Anlage klein, ASCII und ohne Leerzeichen."""

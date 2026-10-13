@@ -48,3 +48,11 @@ des Identity Providers, nicht des Portals.
 * **Namen nur für Admins ausliefern:** hätte die Empfänger-Maske um eine Spalte erweitert,
   die der Auftraggeber ausdrücklich nicht wollte, und die Betriebsrats-Diskussion um
   Verhaltens- und Personendaten unnötig ausgeweitet.
+
+## Teilweise abgelöst durch [ADR-0028](0028-nur-email-und-passwort.md)
+
+Nicht mehr gültig ist der Absatz „Was **nicht** dazugehört“: Der mitlaufende Keycloak
+verlangt und speichert keine Vor- und Nachnamen mehr, der Client bekommt den Scope `profile`
+nicht, und `create-user.sh --name` ist entfallen. Damit stimmt auch die Aussage nicht mehr,
+eine Namensanzeige sei billig wiederherstellbar, weil der Claim im Token liege: Er liegt
+dort nicht mehr. Alles Übrige gilt unverändert.

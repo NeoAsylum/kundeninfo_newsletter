@@ -24,9 +24,9 @@
 
   const byId = (id) => document.getElementById(id);
 
-  function meldungenUrl() {
+  function meldungenUrl(offset) {
     return (
-      "/api/v1/dispatches?limit=" + PAGE_LIMIT + "&offset=" + currentOffset +
+      "/api/v1/dispatches?limit=" + PAGE_LIMIT + "&offset=" + offset +
       (currentTopicId ? "&topic_id=" + encodeURIComponent(currentTopicId) : "")
     );
   }
@@ -34,7 +34,10 @@
   function renderMeldung(meldung) {
     // Nur bekannte Schweregrade dürfen einen Klassennamen bilden — kein stilles Vertrauen
     // darauf, dass die eigene API nie andere Werte liefert (Review-Befund versand.js).
-    const label = SEVERITY_LABELS[meldung.severity];
+    // hasOwn: Der bloße Nachschlag fände auch Geerbtes wie "constructor".
+    const label = Object.hasOwn(SEVERITY_LABELS, meldung.severity)
+      ? SEVERITY_LABELS[meldung.severity]
+      : "";
 
     const article = document.createElement("article");
     article.className = "meldung";
@@ -94,9 +97,10 @@
     }
     // Nur die jüngste Anfrage darf die Liste verändern (Race-Schutz)
     const seq = ++requestSeq;
+    const hatteFokus = document.activeElement === loadMore;
     loadMore.disabled = true;
     try {
-      const data = await App.requestJson(meldungenUrl());
+      let data = await App.requestJson(meldungenUrl(currentOffset));
       if (seq !== requestSeq) return; // veraltete Response verwerfen
       // Die Liste ist nach Zeitpunkt absteigend sortiert und wird per offset geblättert.
       // Kommt zwischen zwei Seiten eine Meldung hinzu, rutscht alles eine Position nach
@@ -104,12 +108,21 @@
       // ausgerechnet die, die in einer Großstörung zählt. Verschiebung erkennen und
       // von vorn laden, statt anzuhängen.
       if (!reset && data.total !== totalCount) {
-        currentOffset = 0;
+        // Ohne Ladehinweis, Blätterstand unberührt: Scheitert diese Anfrage, stehen die
+        // geladenen Karten noch da, und das nächste „Mehr laden“ erkennt die Verschiebung
+        // wieder.
+        data = await App.requestJson(meldungenUrl(0));
+        if (seq !== requestSeq) return;
         totalCount = data.total;
-        await loadPage(true);
-        return;
+        currentOffset = 0;
+        reset = true; // ab hier wie ein Neuladen: Die Antwort ersetzt die Liste
+        // Die Liste beginnt neu, also zurück an den Seitenanfang: Dort stehen die neue Meldung
+        // und der Zähler. An der alten Lesestelle stünden Karten, die schon gelesen sind — als
+        // wäre nichts geschehen.
+        window.scrollTo(0, 0);
+      } else {
+        totalCount = data.total;
       }
-      totalCount = data.total;
       if (reset) list.replaceChildren();
       if (!data.items.length && currentOffset === 0) {
         showMessage(emptyText(), "empty-state");
@@ -130,7 +143,16 @@
       // Beim Nachladen bleiben die geladenen Meldungen stehen — nur melden
       App.toast(error.message, true);
     } finally {
-      if (seq === requestSeq) loadMore.disabled = false;
+      if (seq === requestSeq) {
+        loadMore.disabled = false;
+        // `disabled` wirft den Tastaturfokus auf <body>; nur dann zurückholen — wer inzwischen
+        // weitergegangen ist, behält seinen Platz. Ohne Bildlauf: Der Knopf steht jetzt unter
+        // den neuen Karten, gelesen wird darüber. Ist er nach der letzten Seite versteckt,
+        // nimmt er den Fokus nicht an.
+        if (hatteFokus && (!document.activeElement || document.activeElement === document.body)) {
+          loadMore.focus({ preventScroll: true });
+        }
+      }
     }
   }
 

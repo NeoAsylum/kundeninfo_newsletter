@@ -37,7 +37,10 @@ def test_login_roundtrip_und_me(http):
         assert "admin" not in me.json()["roles"]
 
 
-def test_admin_rolle_aus_keycloak(http):
+def test_admin1_ist_admin_per_bootstrap(http):
+    """Das Adminrecht kommt aus ADMIN_BOOTSTRAP_EMAILS (DEV-Standard), nicht aus der
+    Keycloak-Rolle (ADR-0022) — setzt voraus, dass admin1 es schon hat oder noch kein
+    aktiver Admin existiert."""
     with http() as client:
         keycloak_login(client, "admin1", "test")
         me = client.get(f"{BASE_URL}/api/v1/me")

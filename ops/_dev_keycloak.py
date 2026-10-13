@@ -14,6 +14,18 @@ REALM = "dev"
 
 _ENV_FILE = pathlib.Path(__file__).resolve().parents[1] / ".env"
 
+_KCADM = (
+    "docker compose -f compose.yaml -f compose.db.yaml -f compose.dev.yaml "
+    "exec -T keycloak /opt/keycloak/bin/kcadm.sh"
+)
+HTTPS_HINWEIS = f"""FEHLER: Keycloak lehnt den Admin-Login über http ab ("HTTPS required").
+Es hält die Verbindung vom Host für extern (Absenderadresse aus dem Docker-Netz).
+Einmal je Keycloak-Container im Container selbst freischalten, dort ist sie lokal:
+
+  {_KCADM} config credentials --server http://localhost:8081 --realm master --user admin --password admin
+  {_KCADM} update realms/master -s sslRequired=NONE
+"""
+
 
 def abort_if_prod() -> None:
     """Auf dem öffentlichen Server liegt eine .env mit APP_ENV=prod und echten
@@ -40,7 +52,11 @@ def load_env() -> dict[str, str]:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, value = line.partition("=")
-                values[key.strip()] = value.strip()
+                value = value.strip()
+                # Wie Shell und Docker Compose: umschließende Anführungszeichen entfernen
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                    value = value[1:-1]
+                values[key.strip()] = value
     return values
 
 
@@ -56,5 +72,11 @@ def admin_headers(client: httpx.Client, user: str, password: str) -> dict[str, s
             "password": password,
         },
     )
+    if response.status_code == 403 and "HTTPS required" in response.text:
+        # Der master-Realm verlangt HTTPS, sobald Keycloak die Verbindung für extern hält.
+        # Docker Desktop reicht Host-Verbindungen je nach Netzkonfiguration mit einer
+        # nicht-privaten Absenderadresse durch — dann trifft das auch localhost.
+        print(HTTPS_HINWEIS, file=sys.stderr)
+        raise SystemExit(1)
     response.raise_for_status()
     return {"Authorization": f"Bearer {response.json()['access_token']}"}

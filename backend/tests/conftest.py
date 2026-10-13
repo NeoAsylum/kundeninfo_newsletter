@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pathlib
 import sys
 
@@ -15,12 +16,15 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.core.config import Settings  # noqa: E402
 
+# Hermetisch: Settings liest jedes nicht übergebene Feld aus der Umgebung. In einer Shell
+# mit geladener .env (Editor, api-Container) sickerten deren Werte sonst in die Tests.
+for _feld in Settings.model_fields:
+    os.environ.pop(_feld.upper(), None)
+
 TEST_DB_URL_DEFAULT = "postgresql+psycopg://postgres:test@localhost:3307/newsletter_test"
 
 
 def make_settings(**overrides) -> Settings:
-    import os
-
     defaults = dict(
         app_env="dev",
         public_base_url="http://testserver",

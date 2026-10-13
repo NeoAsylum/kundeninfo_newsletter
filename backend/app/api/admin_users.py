@@ -1,8 +1,8 @@
 """Empfänger-Verwaltung (Rolle admin): browsen, deaktivieren/aktivieren, Abos pflegen.
 
 Bewusste Grenzen:
-- E-Mail und Anzeigename sind read-only — sie kommen per JIT aus dem IdP (ADR-0010);
-  Editieren würde beim nächsten Login überschrieben.
+- Die E-Mail ist read-only — sie kommt per JIT aus dem IdP (ADR-0010); Editieren
+  würde beim nächsten Login überschrieben.
 - Keine Verhaltensdaten (last_login_at) im Response — Betriebsrats-Vorsorge (B5).
 - Admin-Aktionen werden IMMER auditiert (ADR-0017) — der AUDIT_SUBSCRIPTIONS-Schalter
   betrifft nur die Selbstbedienung der Mitarbeiter, nicht Fremdänderungen durch Admins.
@@ -221,9 +221,6 @@ async def revoke_admin(user_id: int, session: SessionDep, actor: CurrentUserDep)
     Der Selbstentzug ist gesperrt — analog zur Selbst-Deaktivierung. Das ist zugleich
     der Aussperr-Schutz: Wer entziehen darf, ist selbst Admin und bleibt es, also ist
     nach jedem erlaubten Entzug mindestens ein Admin übrig.
-
-    Eine Adminrolle, die aus dem IdP stammt, kann hier NICHT entzogen werden — sie
-    gehört dem Identity Provider. Der Response zeigt deshalb nur das Portal-Kennzeichen.
     """
     user = await _get_user(session, user_id)
     if user.id == actor.id:

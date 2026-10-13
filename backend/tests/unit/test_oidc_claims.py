@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from app.core.oidc import OidcClient, OidcError, claim_path
@@ -49,6 +51,86 @@ def test_email_claim_konfigurierbar():
 def test_fehlender_email_claim_wirft():
     with pytest.raises(OidcError):
         _client().identity_from_claims({"sub": "s"})
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        ["mia@example.corp"],
+        {"value": "mia@example.corp"},
+        True,
+        12345,
+        " ",
+        "mia.example.corp",
+        "@example.corp",
+        "mia@",
+        "mia@example.corp, chef@example.corp",
+        "Mia <mia@example.corp>",
+        "mia muster@example.corp",
+        "mia@example.corp\r\nBcc: x@example.corp",
+        "mia@example.corp\x00",
+        "m" * 310 + "@example.corp",
+    ],
+    ids=[
+        "liste",
+        "objekt",
+        "true",
+        "zahl",
+        "leer",
+        "ohne-at",
+        "ohne-lokalteil",
+        "ohne-domain",
+        "zwei-adressen",
+        "mit-anzeigename",
+        "leerzeichen",
+        "zeilenumbruch",
+        "nullzeichen",
+        "ueberlang",
+    ],
+)
+def test_email_claim_muss_eine_adresse_sein(email):
+    """Der Wert wird als Empfängeradresse gespeichert. Per str() entstünde aus einer Liste
+    die Scheinadresse "['mia@example.corp']" statt eines Anmeldefehlers."""
+    with pytest.raises(OidcError) as fehler:
+        _client().identity_from_claims({"sub": "s", "email": email})
+    # Die Meldung wird geloggt — der Wert des Claims gehört nicht hinein (ADR-0014)
+    assert "example.corp" not in str(fehler.value)
+
+
+def test_email_claim_wird_von_leerraum_befreit():
+    identity = _client().identity_from_claims({"sub": "s", "email": " Mia@Example.Corp\n"})
+    assert identity.email == "mia@example.corp"
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "mia+portal@example.corp",
+        "m.muster-2@sub.example.corp",
+        "MIA@EXAMPLE.CORP",
+        "ö@bücher.example",
+    ],
+)
+def test_uebliche_adressformen_werden_angenommen(email):
+    """Die Prüfung soll Listen und Müll abweisen, nicht echte Adressen."""
+    assert _client().identity_from_claims({"sub": "s", "email": email}).email == email.lower()
+
+
+def test_namen_aus_dem_token_werden_nicht_uebernommen():
+    """ADR-0025/0028: Auch wenn ein IdP Namens-Claims mitschickt, trägt die Identität
+    nur sub, Adresse und Basisrolle."""
+    claims = dict(BASE_CLAIMS, given_name="Mia", family_name="Muster", preferred_username="mm")
+    assert dataclasses.asdict(_client().identity_from_claims(claims)) == {
+        "sub": "user-123",
+        "email": "mia.muster@example.corp",
+        "roles": ["employee"],
+    }
+
+
+def test_fehlender_sub_claim_wirft():
+    """sub ist der Identitätsanker (ADR-0010) — ohne ihn OidcError statt KeyError/500."""
+    with pytest.raises(OidcError):
+        _client().identity_from_claims({"email": "x@y.z"})
 
 
 def test_split_horizon_url_rewrite():

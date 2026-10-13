@@ -64,6 +64,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="Störungsinfo-Portal",
         version=os.getenv("APP_VERSION", "dev"),
         lifespan=lifespan,
+        # FastAPI bringt seit 0.142 OpenTelemetry mit und zeichnete, sobald irgendwer einen
+        # Provider einrichtet, zu jeder Anfrage Pfad UND Query-String auf — also auch die
+        # Adresse aus der Empfängersuche (ADR-0014). Deshalb ausdrücklich aus, nicht nur
+        # „nicht eingerichtet“. OTEL_*-Variablen gehören nicht in die .env: Schon ein
+        # unbekannter Name in OTEL_PROPAGATORS lässt den Import von FastAPI scheitern.
+        telemetry={"tracing": False, "metrics": False, "logs": False, "auto_configure": False},
         docs_url="/docs" if settings.is_dev else None,
         redoc_url=None,
         openapi_url="/openapi.json" if settings.is_dev else None,

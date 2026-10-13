@@ -10,10 +10,14 @@ frischen Import. Dieses Skript ist für zwei Fälle:
 
     python ops/configure_dev_realm.py [--verify-email] [--no-registration]
 
+Mit einem Tageslimit in der .env (SMTP_MAX_PER_DAY größer 0, ADR-0032) bekommt der Realm KEINEN
+Mailserver und keinen Passwort-Reset: Was Keycloak selbst verschickt, zählte das Limit nicht.
+
 In PROD ohne Entsprechung: dort verwaltet der Konzern-IdP Registrierung und Mails.
 """
 
 import argparse
+import math
 import sys
 
 import httpx
@@ -41,16 +45,45 @@ def main() -> int:
     smtp_password = env.get("SMTP_PASSWORD", "")
     mail_from = env.get("MAIL_FROM", "")
 
+    # Das Tageslimit zählt nur, was der Outbox-Worker der Anwendung sendet. Keycloaks eigene
+    # Mails gingen über dasselbe Postfach daran vorbei — mit Limit sendet Keycloak deshalb gar nicht.
+    try:
+        limit_wert = float(env.get("SMTP_MAX_PER_DAY", "").strip() or 0)
+    except ValueError:
+        limit_wert = math.nan
+    # Wie die Anwendung, die mit einem negativen Wert nicht startet: -5 bedeutet nicht still
+    # „kein Limit“ — und nan oder inf sind so wenig eine Zahl wie ein Tippfehler.
+    if limit_wert < 0:
+        print(
+            "FEHLER: SMTP_MAX_PER_DAY in der .env darf nicht negativ sein (0 = kein Limit).",
+            file=sys.stderr,
+        )
+        return 1
+    if not math.isfinite(limit_wert):
+        print("FEHLER: SMTP_MAX_PER_DAY in der .env ist keine Zahl.", file=sys.stderr)
+        return 1
+    tageslimit = limit_wert > 0
+    if tageslimit and args.verify_email:
+        print(
+            "FEHLER: --verify-email verträgt sich nicht mit einem Tageslimit (SMTP_MAX_PER_DAY): "
+            "Die Bestätigungsmail schickte Keycloak selbst, am Limit vorbei.",
+            file=sys.stderr,
+        )
+        return 1
+
     registration = not args.no_registration
     updates: dict[str, object] = {
         "registrationAllowed": registration,
         "registrationEmailAsUsername": True,
         "loginWithEmailAllowed": True,
-        "resetPasswordAllowed": True,
+        "resetPasswordAllowed": not tageslimit,
         "verifyEmail": args.verify_email,
     }
 
-    if smtp_host and smtp_host != "mailpit" and smtp_user:
+    if tageslimit:
+        updates["smtpServer"] = {}
+        smtp_info = "keiner — Tageslimit gesetzt (SMTP_MAX_PER_DAY), Keycloak sendet nichts"
+    elif smtp_host and smtp_host != "mailpit" and smtp_user:
         updates["smtpServer"] = {
             "host": smtp_host,
             "port": env.get("SMTP_PORT", "587"),
@@ -107,7 +140,7 @@ def main() -> int:
     print(f"  Selbstregistrierung: {'AN' if registration else 'AUS'}")
     print("  E-Mail als Benutzername: AN")
     print(f"  Bestätigungsmail: {'AN' if args.verify_email else 'AUS'}")
-    print("  Passwort-Reset: AN")
+    print(f"  Passwort-Reset: {'AUS' if tageslimit else 'AN'}")
     print(f"  SMTP im Realm: {smtp_info}")
     print("\nRegistrieren-Link erscheint auf der Login-Seite:")
     print("  http://localhost:8080/auth/login")

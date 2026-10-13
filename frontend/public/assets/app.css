@@ -21,7 +21,14 @@
 
 * { box-sizing: border-box; }
 
-html { font-size: 16px; }
+/* Das hidden-Attribut muss gegen jede display-Regel unten gewinnen (.btn, .recipient-hint,
+   .topbar-nav a): Die Skripte blenden ausschließlich über `hidden` aus. */
+[hidden] { display: none !important; }
+
+/* scroll-padding-top: Die Kopfzeile klebt oben (sticky, je nach Fensterbreite bis 86 px
+   hoch). Was der Tastaturfokus ins Bild holt, kommt so darunter hervor statt dahinter zu
+   landen. */
+html { font-size: 16px; scroll-padding-top: 6rem; }
 
 body {
   margin: 0;
@@ -542,6 +549,16 @@ textarea { resize: vertical; min-height: 180px; }
 
 .history { margin-top: 28px; }
 
+/* Nach einem Versand ohne Bestätigung (versand.js) — außerhalb der Tabelle, damit der Satz
+   auch im schmalen Fenster umbricht statt mit ihr über den Rand zu laufen. */
+.history-notice {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  background: var(--surface-muted);
+  border-left: 4px solid var(--warn);
+}
+
 .history table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 
 .history th {
@@ -795,12 +812,16 @@ textarea { resize: vertical; min-height: 180px; }
 
 /* Gesperrte Felder müssen als gesperrt erkennbar sein — die Verteiler-Maske setzt
    readOnly (statt disabled, damit der Wert kopierbar bleibt) für den unveränderlichen
-   Slug und für den Namen bei laufendem Versand. */
+   Slug und für den Namen bei laufendem Versand. Verteiler- und Versand-Maske setzen es
+   außerdem, solange ihr Speichern bzw. Senden läuft (disabled nähme dem Feld den Fokus);
+   der Pflicht-Haken trägt dann aria-disabled. */
 input[readonly], textarea[readonly] {
   background: var(--surface-muted);
   color: var(--text-muted);
   cursor: default;
 }
+
+input[type="checkbox"][aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 
 /* .search-row ohne das flex:1-Suchfeld (Meldungs-Filter) würde die Trefferzahl direkt
    an das Dropdown kleben — der Abstandshalter schiebt sie nach rechts. */

@@ -10,25 +10,33 @@ SSL_CERT_FILE aus der Umgebung (Konzern-Proxy/CA, Plan 10.2).
 import base64
 import hashlib
 import logging
+import re
 import secrets
 import time
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import httpx
-from authlib.jose import JsonWebKey, JsonWebToken, KeySet  # type: ignore[import-untyped]
-from authlib.jose.errors import JoseError  # type: ignore[import-untyped]
+from joserfc import jwt
+from joserfc.errors import JoseError
+from joserfc.jwk import JWKRegistry, KeySet
+from joserfc.jws import JWSRegistry
+from joserfc.jwt import JWTClaimsRegistry
 
 from app.core.config import Settings
 from app.core.security import Identity
 
 log = logging.getLogger(__name__)
 
-SCOPES = "openid profile email"
-
 
 class OidcError(Exception):
     pass
+
+
+# Genau EINE Adresse, wie sie in den To-Header darf: kein Leerraum, kein Steuerzeichen, kein
+# Trenner, keine Klammern. „a@x.de, b@x.de“ würde als ein Empfänger gespeichert und beim
+# Versand als zwei adressiert.
+_ADRESSE = re.compile(r"""[^@\s\x00-\x1f\x7f,;<>()\[\]"\\]+@[^@\s\x00-\x1f\x7f,;<>()\[\]"\\]+""")
 
 
 def claim_path(claims: dict, path: str) -> Any:
@@ -42,9 +50,21 @@ def claim_path(claims: dict, path: str) -> Any:
 
 
 class OidcClient:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         self._s = settings
-        self._jwt = JsonWebToken(["RS256"])
+        self._transport = transport  # Testnaht: IdP-Attrappe ohne Netz
+        # Nur RS256 — und die Liste MUSS in der Registry stehen: Bekommt jwt.decode eine
+        # Registry, ignoriert es sein algorithms-Argument; es gälten dann joserfcs
+        # Vorgaben (auch HS256 und ES256). strict_check_header=False: unbekannte
+        # Header-Parameter ignorieren (RFC 7515 §4); "crit" wird weiterhin geprüft.
+        # Es gelten joserfcs Größengrenzen je Token-Teil (Base64-Zeichen): Header 512,
+        # Payload 128 000, Signatur 1 024 — ein Header mit Zertifikatskette (x5c) oder
+        # ein RSA-Schlüssel über 6 144 Bit fiele darunter.
+        self._jws = JWSRegistry(algorithms=["RS256"], strict_check_header=False)
+        # RFC 7797 ("b64": false, Payload unkodiert) bleibt abgelehnt.
+        self._jws.header_registry.pop("b64", None)
         self._metadata: dict | None = None
         self._metadata_at = 0.0
         self._jwks: KeySet | None = None
@@ -76,17 +96,45 @@ class OidcClient:
             return internal + url[len(public_origin) :]
         return url
 
+    def _http(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=10, transport=self._transport)
+
+    async def _fetch_json(self, url: str, was: str) -> dict:
+        """GET mit JSON-Antwort. Netz-, Status- und Formatfehler werden zu OidcError,
+        damit ein nicht erreichbarer IdP als 502 endet statt als unbehandelte Ausnahme."""
+        try:
+            async with self._http() as client:
+                response = await client.get(url)
+                response.raise_for_status()
+            data = response.json()
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError, RecursionError) as exc:
+            # InvalidURL ist KEIN HTTPError (kaputte URL aus der Discovery); RecursionError
+            # wirft json bei extrem tief geschachtelten Antworten.
+            raise OidcError(f"{was} nicht abrufbar: {exc}") from exc
+        if not isinstance(data, dict):
+            raise OidcError(f"{was}: unerwartetes Antwortformat")
+        return data
+
+    @staticmethod
+    def _endpoint(metadata: dict, name: str) -> str:
+        url = metadata.get(name)
+        if not isinstance(url, str) or not url:
+            raise OidcError(f"OIDC-Discovery enthält kein '{name}'")
+        return url
+
     async def _get_metadata(self) -> dict:
         if self._metadata and time.time() - self._metadata_at < 3600:
             return self._metadata
         url = self._to_internal(self.issuer) + "/.well-known/openid-configuration"
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-        metadata = response.json()
-        if metadata.get("issuer") != self.issuer:
+        metadata = await self._fetch_json(url, "OIDC-Discovery")
+        erhalten = metadata.get("issuer")
+        # Bei manchen IdPs gehört ein abschließender "/" zum Issuer (Entra v1, Auth0).
+        # Verglichen wird deshalb ohne ihn; für den iss-Claim gilt danach exakt die
+        # Schreibweise des IdP aus der Discovery (validate_id_token).
+        if erhalten not in (self.issuer, self.issuer + "/"):
+            # gekürzt: Der Wert kommt vom IdP und landet im Log
             raise OidcError(
-                f"Issuer-Mismatch: erwartet {self.issuer}, erhalten {metadata.get('issuer')}"
+                f"Issuer-Mismatch: erwartet {self.issuer}, erhalten {str(erhalten)[:200]!r}"
             )
         self._metadata, self._metadata_at = metadata, time.time()
         return metadata
@@ -95,11 +143,27 @@ class OidcClient:
         if self._jwks and not force_refresh and time.time() - self._jwks_at < 3600:
             return self._jwks
         metadata = await self._get_metadata()
-        url = self._to_internal(metadata["jwks_uri"])
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-        self._jwks = JsonWebKey.import_key_set(response.json())
+        url = self._to_internal(self._endpoint(metadata, "jwks_uri"))
+        eintraege = (await self._fetch_json(url, "JWKS")).get("keys")
+        if not isinstance(eintraege, list):
+            raise OidcError("JWKS nicht lesbar: 'keys' fehlt oder ist keine Liste")
+        keys = []
+        for jwk in eintraege:
+            # RFC 7517 §5: Schlüssel, die wir nicht lesen können (fremder Typ, unbekannte
+            # Kurve, unzulässiger Parameter), überspringen statt das ganze Set zu
+            # verwerfen — sonst legte EIN solcher Eintrag beim IdP jede Anmeldung lahm.
+            try:
+                if not isinstance(jwk, dict):
+                    raise TypeError("kein JSON-Objekt")
+                keys.append(JWKRegistry.import_key(jwk))
+            except (JoseError, ValueError, KeyError, TypeError) as exc:
+                # Sichtbar machen: Trifft es den Signaturschlüssel, scheitert danach jede
+                # Anmeldung an „No key for kid“ — das sähe sonst nach Schlüsselrotation aus.
+                kid = jwk.get("kid") if isinstance(jwk, dict) else None
+                log.warning("JWKS-Eintrag übersprungen (kid=%.80r): %s", kid, type(exc).__name__)
+        if not keys:
+            raise OidcError("JWKS enthält keinen lesbaren Schlüssel")
+        self._jwks = KeySet(keys)
         self._jwks_at = time.time()
         return self._jwks
 
@@ -117,7 +181,7 @@ class OidcClient:
         params = {
             "client_id": self._s.oidc_client_id,
             "response_type": "code",
-            "scope": SCOPES,
+            "scope": self._s.oidc_scopes,
             "redirect_uri": self._s.callback_url,
             "state": state,
             "nonce": nonce,
@@ -126,7 +190,7 @@ class OidcClient:
         }
         if prompt:
             params["prompt"] = prompt
-        url = metadata["authorization_endpoint"] + "?" + urlencode(params)
+        url = self._endpoint(metadata, "authorization_endpoint") + "?" + urlencode(params)
         return url, {"state": state, "nonce": nonce, "verifier": verifier}
 
     async def build_end_session_url(
@@ -144,7 +208,7 @@ class OidcClient:
 
     async def exchange_code(self, code: str, verifier: str, nonce: str) -> dict:
         metadata = await self._get_metadata()
-        token_url = self._to_internal(metadata["token_endpoint"])
+        token_url = self._to_internal(self._endpoint(metadata, "token_endpoint"))
         data = {
             "grant_type": "authorization_code",
             "code": code,
@@ -153,35 +217,59 @@ class OidcClient:
             "client_secret": self._s.oidc_client_secret,
             "code_verifier": verifier,
         }
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(token_url, data=data)
+        try:
+            async with self._http() as client:
+                response = await client.post(token_url, data=data)
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
+            raise OidcError(f"Token-Endpoint nicht erreichbar: {exc}") from exc
+        try:
+            payload = response.json()
+        except (ValueError, RecursionError):
+            payload = None
         if response.status_code != 200:
-            raise OidcError(
-                f"Token-Endpoint lieferte {response.status_code}: {response.text[:300]}"
-            )
-        id_token = response.json().get("id_token")
-        if not id_token:
+            # Nur der kurze OAuth-Fehlercode (RFC 6749 §5.2), nie der Antworttext: Ein IdP
+            # kann in error_description das Konto nennen — Adressen gehören nicht ins Log
+            # (ADR-0014), und diese Meldung wird geloggt.
+            fehler = payload.get("error") if isinstance(payload, dict) else None
+            if not isinstance(fehler, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", fehler):
+                fehler = "ohne Fehlercode"
+            raise OidcError(f"Token-Endpoint lieferte {response.status_code}: {fehler}")
+        if not isinstance(payload, dict):
+            raise OidcError("Token-Antwort ist kein JSON-Objekt")
+        id_token = payload.get("id_token")
+        if not isinstance(id_token, str) or not id_token:
             raise OidcError("Token-Antwort enthält kein id_token")
         return await self.validate_id_token(id_token, nonce)
 
     async def validate_id_token(self, token: str, nonce: str | None) -> dict:
-        claims_options = {
-            "iss": {"essential": True, "value": self.issuer},
-            "aud": {"essential": True, "value": self._s.oidc_client_id},
-            "exp": {"essential": True},
-        }
+        # "essential" ist Pflicht: Ohne es prüft joserfc "value" nur, WENN der Claim da ist.
+        # iss muss exakt dem Issuer aus der Discovery entsprechen (siehe _get_metadata).
+        # nbf und iat prüft joserfc von sich aus mit, sobald das Token sie trägt.
+        claims_registry = JWTClaimsRegistry(
+            leeway=30,
+            iss={"essential": True, "value": (await self._get_metadata())["issuer"]},
+            aud={"essential": True, "value": self._s.oidc_client_id},
+            exp={"essential": True},
+            sub={"essential": True},
+        )
         last_error: Exception | None = None
         claims = None
         # Zwei Versuche: bei unbekannter kid einmal JWKS neu laden (Key-Rotation, Plan 5.4)
         for force_refresh in (False, True):
             keys = await self._get_jwks(force_refresh=force_refresh)
             try:
-                claims = self._jwt.decode(token, keys, claims_options=claims_options)
-                claims.validate(leeway=30)
+                decoded = jwt.decode(token, keys, registry=self._jws)
+                if not isinstance(decoded.claims, dict):
+                    raise ValueError("Payload ist kein JSON-Objekt")
+                claims_registry.validate(decoded.claims)
+                claims = decoded.claims
                 break
-            except JoseError as exc:
+            except (JoseError, ValueError, TypeError, RecursionError) as exc:
+                # JoseError deckt auch die unbekannte kid ab (InvalidKeyIdError) — genau der
+                # Rotationsfall, für den der zweite Versuch da ist. Die übrigen reicht
+                # joserfc bei kaputten Tokens ungefangen durch (z. B. "crit" ohne Liste,
+                # Header kein JSON-Objekt, extrem tief geschachtelte Payload).
                 last_error = exc
-                claims = None
         if claims is None:
             raise OidcError(f"ID-Token-Validierung fehlgeschlagen: {last_error}")
         if nonce and claims.get("nonce") != nonce:
@@ -190,8 +278,16 @@ class OidcClient:
 
     def identity_from_claims(self, claims: dict) -> Identity:
         email = claim_path(claims, self._s.oidc_email_claim)
-        if not email:
+        if email is None or email == "":
             raise OidcError(f"Claim '{self._s.oidc_email_claim}' fehlt im ID-Token")
+        # Der Wert wird als Empfängeradresse gespeichert. Eine Liste (etwa ein Claim
+        # `emails`) oder eine Zahl ergäbe per str() eine Scheinadresse statt eines
+        # Anmeldefehlers. Der Wert selbst bleibt aus der Meldung heraus — sie wird geloggt.
+        email = email.strip() if isinstance(email, str) else ""
+        if len(email) > 320 or not _ADRESSE.fullmatch(email):  # 320: Länge von users.email
+            raise OidcError(f"Claim '{self._s.oidc_email_claim}' ist keine E-Mail-Adresse")
+        if not claims.get("sub"):
+            raise OidcError("Claim 'sub' fehlt im ID-Token")
         # Rollen kommen NICHT mehr aus dem Token: Adminrechte führt das Portal
         # (users.is_admin, ADR-0022). Das Cookie trägt nur noch die Basisrolle, damit
         # keine Berechtigung an einer Stelle entsteht, die niemand mehr prüft.
@@ -200,6 +296,6 @@ class OidcClient:
         # keine Personennamen an, also gibt es keinen Grund, sie zu übernehmen.
         return Identity(
             sub=str(claims["sub"]),
-            email=str(email).lower(),
+            email=email.lower(),
             roles=roles,
         )

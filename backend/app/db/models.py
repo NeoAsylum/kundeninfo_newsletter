@@ -5,6 +5,7 @@ dispatch_recipients = Outbox + Audit in einer Tabelle, Soft-Delete über is_acti
 """
 
 import enum
+import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -20,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -117,8 +119,15 @@ class Dispatch(Base):
     # Worker-Heartbeat: Grundlage der Stale-Erkennung (Plan 6.3)
     last_progress_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Schlüssel des anlegenden Aufrufs (ADR-0031): Kommt er noch einmal, legt die API
+    # nichts an. NULL bei Aufrufen ohne Schlüssel und in allen Zeilen vor Migration 0005;
+    # der eindeutige Index lässt beliebig viele NULL zu.
+    idempotency_key: Mapped[uuid.UUID | None] = mapped_column(Uuid)
 
-    __table_args__ = (Index("ix_dispatches_created", "created_at"),)
+    __table_args__ = (
+        Index("ix_dispatches_created", "created_at"),
+        Index("uq_dispatches_idempotency_key", "idempotency_key", unique=True),
+    )
 
 
 class DispatchRecipient(Base):

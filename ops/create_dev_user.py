@@ -1,8 +1,8 @@
-"""Legt im DEV-Keycloak einen Benutzer an (optional mit Admin-Rolle).
+"""Legt im DEV-Keycloak einen Benutzer an — nur E-Mail und Passwort (ADR-0028).
 
-Nur für die Entwicklungs-/Testumgebung: In PROD kommen Benutzer und Rollen
-ausschließlich aus dem Konzern-IdP (ADR-0013). Nötig, weil der DEV-Keycloak
-seinen Datenstand bei Neuaufbau verliert.
+Nur für die Entwicklungs-/Testumgebung: In PROD kommen Benutzer ausschließlich
+aus dem Konzern-IdP. Nötig, weil der DEV-Keycloak seinen Datenstand bei Neuaufbau
+verliert.
 
     python ops/create_dev_user.py --email <adresse> [--password <pw>]
 
@@ -25,16 +25,12 @@ from _dev_keycloak import KEYCLOAK, REALM, abort_if_prod, admin_headers
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--email", required=True)
-    parser.add_argument("--username", default=None, help="Default: Teil vor dem @")
-    parser.add_argument("--first-name", default="")
-    parser.add_argument("--last-name", default="")
     parser.add_argument("--password", default=None)
     parser.add_argument("--keycloak-admin", default="admin")
     parser.add_argument("--keycloak-admin-password", default="admin")
     args = parser.parse_args()
     abort_if_prod()
 
-    username = args.username or args.email.split("@")[0]
     password = args.password or secrets.token_urlsafe(12)
     must_change = args.password is None
 
@@ -57,23 +53,18 @@ def main() -> int:
         ).json()
         if existing:
             user_id = existing[0]["id"]
-            # Tatsächlichen Anmeldenamen übernehmen — er kann vom aus der E-Mail
-            # abgeleiteten abweichen, und ein falsch angezeigter Name führt in die Irre.
-            username = existing[0]["username"]
-            print(
-                f"Benutzer existiert bereits (id={user_id}) — aktualisiere Passwort/Rolle"
-            )
+            print(f"Benutzer existiert bereits (id={user_id}) — aktualisiere Passwort")
         else:
             create = client.post(
                 f"{KEYCLOAK}/admin/realms/{REALM}/users",
                 headers=headers,
+                # registrationEmailAsUsername: Der Anmeldename IST die E-Mail — Keycloak
+                # speichert sie als username, egal was hier stünde.
                 json={
-                    "username": username,
+                    "username": args.email,
                     "email": args.email,
                     "emailVerified": True,
                     "enabled": True,
-                    "firstName": args.first_name,
-                    "lastName": args.last_name,
                 },
             )
             if create.status_code not in (201, 204):
@@ -83,7 +74,7 @@ def main() -> int:
                 )
                 return 1
             user_id = create.headers["location"].rsplit("/", 1)[-1]
-            print(f"Benutzer angelegt: {username} <{args.email}> (id={user_id})")
+            print(f"Benutzer angelegt: {args.email} (id={user_id})")
 
         reset = client.put(
             f"{KEYCLOAK}/admin/realms/{REALM}/users/{user_id}/reset-password",
@@ -108,7 +99,7 @@ def main() -> int:
 
     print()
     print("=" * 62)
-    print(f"  Login:    {username}   (oder {args.email})")
+    print(f"  Login:    {args.email}")
     print(f"  Passwort: {password}")
     if must_change:
         print("  → muss beim ersten Login geändert werden")

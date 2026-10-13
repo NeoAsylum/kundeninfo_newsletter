@@ -1,11 +1,10 @@
 """Rollenvergabe im Portal (ADR-0022): Vergabe/Entzug von users.is_admin und die
 daraus folgende, bei JEDER Anfrage gegen die Datenbank geprüfte Autorisierung.
 
-Der Kern dieser Datei ist die ODER-Verknüpfung aus `deps.is_admin`: IdP-Rolle im Cookie
-und Portal-Kennzeichen in der DB autorisieren jeweils für sich allein. Die Tests setzen
-deshalb bewusst nur EINE der beiden Quellen — ein Cookie mit ["employee"] beweist, dass
-der DB-Weg trägt, und ein Cookie mit ["employee", "admin"] ohne DB-Kennzeichen beweist,
-dass der IdP-Weg nicht kaputtgegangen ist.
+Der Kern dieser Datei: Allein das Portal-Kennzeichen in der DB autorisiert
+(`deps.is_admin`). Die Tests trennen deshalb Cookie und DB — ein Cookie mit ["employee"]
+plus DB-Kennzeichen beweist, dass der DB-Weg trägt, und ein Cookie mit
+["employee", "admin"] ohne DB-Kennzeichen muss in 403 enden.
 """
 
 from sqlalchemy import select
@@ -21,8 +20,7 @@ NUR_EMPLOYEE = ["employee"]
 
 
 async def _handelnder_admin(make_user) -> User:
-    """Admin ausschließlich per Portal-Kennzeichen — so hilft die IdP-Rolle in den
-    Vergabe-Tests nirgends mit, und der DB-Weg wird nebenbei mitgeprüft."""
+    """Admin per Portal-Kennzeichen — der einzige Weg zum Adminrecht (ADR-0022)."""
     return await make_user(sub=ADMIN[0], email=ADMIN[1], admin=True)
 
 
@@ -294,8 +292,8 @@ async def test_entzug_wirkt_auch_gegen_ein_altes_admin_cookie(client, auth_heade
 
 # --- Bootstrap: der erste Admin auf einer Instanz ohne Admin ------------------
 #
-# Diese Tests gehen absichtlich über jit_upsert statt über den OIDC-Callback: Der
-# Callback bräuchte einen echten IdP, die Logik sitzt aber in der Domäne.
+# Diese Tests gehen über jit_upsert: Dort sitzt die Logik. Dass die Liste den
+# OIDC-Callback erreicht, prüft test_login_flow.py.
 
 
 async def _anmelden(app, settings, sub: str, email: str):

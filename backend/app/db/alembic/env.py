@@ -8,7 +8,11 @@ from app.db.models import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: Der Standard schaltet alle bereits angelegten Logger
+    # stumm. Im Container egal (alembic läuft als eigener Prozess), aber wo die Migration
+    # IM Prozess der Anwendung läuft — die API-Tests tun das —, schwiege danach jedes
+    # app.*-Log, auch Fehlermeldungen.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

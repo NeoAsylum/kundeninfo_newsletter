@@ -38,15 +38,33 @@ function renderTopic(topic) {
     const track = document.createElement("span");
     track.className = "toggle-track";
     label.append(input, track);
+    // detail 0 heißt: per Tastatur umgeschaltet (ein Mausklick zählt ab 1), siehe onToggle.
+    input.addEventListener("click", (event) => { perTastatur = event.detail === 0; });
     input.addEventListener("change", () => onToggle(topic, input));
     card.appendChild(label);
   }
   return card;
 }
 
+let letzterSchalter = null; // der zuletzt bediente — nur er holt sich den Fokus zurück
+let perTastatur = false; // … und ob das mit der Tastatur geschah
+let laufend = 0; // Umschaltungen, deren Antwort noch aussteht
+
+/* Die Sperre (`disabled`) wirft den Tastaturfokus auf <body>. Eine zweite Leertaste („doch
+   nicht“) träfe dort die Seite und blätterte sie weiter — der Schalter wäre aus dem Bild.
+   Solange eine per Tastatur ausgelöste Umschaltung läuft, tut die Leertaste dort nichts. */
+document.addEventListener("keydown", (event) => {
+  if (event.key === " " && event.target === document.body && laufend > 0 && perTastatur) {
+    event.preventDefault();
+  }
+});
+
 async function onToggle(topic, input) {
   const subscribe = input.checked;
+  const hatteFokus = document.activeElement === input;
+  letzterSchalter = input;
   input.disabled = true;
+  laufend += 1;
   try {
     await App.requestJson("/api/v1/me/subscriptions/" + encodeURIComponent(topic.id), {
       method: subscribe ? "PUT" : "DELETE",
@@ -56,7 +74,18 @@ async function onToggle(topic, input) {
     input.checked = !subscribe; // Rollback bei API-Fehler
     App.toast(error.message, true);
   } finally {
+    laufend -= 1;
     input.disabled = false;
+    // Den Fokus nur zurückholen, wenn er noch auf <body> liegt — wer inzwischen
+    // weitergegangen ist, behält seinen. Von zwei laufenden Umschaltungen bekommt ihn
+    // nur die letzte: Sonst träfe die nächste Leertaste den falschen Verteiler. Nach einem
+    // Mausklick ohne Scrollen: Wer inzwischen weitergescrollt hat, den holt die Antwort nicht
+    // zurück. Nach der Tastatur mit: Die nächste Leertaste träfe sonst einen Schalter, den
+    // man nicht sieht.
+    const fokusAufBody = !document.activeElement || document.activeElement === document.body;
+    if (hatteFokus && letzterSchalter === input && fokusAufBody) {
+      input.focus({ preventScroll: !perTastatur });
+    }
   }
 }
 

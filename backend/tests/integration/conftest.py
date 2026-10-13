@@ -28,25 +28,64 @@ def stack_muss_laufen():
         pytest.skip(f"DEV-Stack unter {BASE_URL} nicht erreichbar — vorher 'make dev' ausführen")
 
 
+def _groesser_null(wert: str) -> bool:
+    try:
+        return float(wert) > 0
+    except ValueError:
+        # Leer oder keine Zahl: Damit läuft die Anwendung ohne Limit oder startet gar nicht.
+        return False
+
+
+def hindernisse_in_der_env(zeilen: list[str]) -> list[str]:
+    """Was in der .env gegen einen Lauf der Integrationstests spricht — je Einstellung ein
+    Satz, der sie beim Namen nennt. Leer, wenn nichts dagegen spricht."""
+    hindernisse = []
+    for line in zeilen:
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        # Wie Shell und Docker Compose: Umschließende Anführungszeichen gehören nicht zum Wert.
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key == "SMTP_HOST" and value not in ("mailpit", ""):
+            hindernisse.append(
+                f"SMTP_HOST='{value}' — Integrationstests würden echte Mails versenden. "
+                "Erst auf 'mailpit' zurückstellen."
+            )
+        # Die Adresse selbst bleibt aus der Meldung heraus.
+        if key == "MAIL_REDIRECT_TO" and value:
+            hindernisse.append(
+                "MAIL_REDIRECT_TO ist gesetzt — jede Mail ginge an die Umleitungsadresse, und "
+                "die Tests fänden ihre Empfänger nicht. Erst leeren."
+            )
+        if key == "SMTP_MAX_PER_DAY" and _groesser_null(value):
+            hindernisse.append(
+                f"SMTP_MAX_PER_DAY={value} — das Tageslimit ließe die Versände der Tests "
+                "scheitern, sobald es erreicht ist. Erst auf 0 zurückstellen."
+            )
+    return hindernisse
+
+
 @pytest.fixture(scope="session", autouse=True)
 def kein_echter_mailversand():
     """Schutz vor echtem Versand: Die Tests legen Störungsmeldungen an reale
     Verteiler an. Zeigt der Stack auf einen echten SMTP-Server (Testbetrieb mit
     Outlook o. ä., RUNBOOK 3b), gingen Mails nach außen und für jede
     Demo-Adresse käme ein Unzustellbarkeitsbericht zurück.
+
+    Umleitung und Tageslimit desselben Testbetriebs ließen die Tests auch mit Mailpit
+    scheitern, ohne dass die Fehlermeldung die Ursache nennt — deshalb derselbe Abbruch.
     """
     env_file = pathlib.Path(__file__).resolve().parents[3] / ".env"
     if not env_file.exists():
         return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        key, _, value = line.partition("=")
-        if key.strip() == "SMTP_HOST" and value.strip() not in ("mailpit", ""):
-            pytest.exit(
-                f"ABBRUCH: SMTP_HOST='{value.strip()}' — Integrationstests würden echte "
-                "Mails versenden. Erst in der .env auf 'mailpit' zurückstellen "
-                "(RUNBOOK 3b), dann 'make dev' und erneut testen.",
-                returncode=2,
-            )
+    hindernisse = hindernisse_in_der_env(env_file.read_text(encoding="utf-8").splitlines())
+    if hindernisse:
+        pytest.exit(
+            "ABBRUCH: Die .env passt nicht zu den Integrationstests (RUNBOOK 3b):\n  "
+            + "\n  ".join(hindernisse)
+            + "\nDanach 'make dev' und erneut testen.",
+            returncode=2,
+        )
 
 
 def _allow_secure_cookies_over_http(client: httpx.Client) -> None:

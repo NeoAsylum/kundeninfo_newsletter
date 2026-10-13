@@ -30,3 +30,8 @@ coverage.xml
 .idea/
 .DS_Store
 Thumbs.db
+
+# Frontend-Tests: Node-Toolchain nur für Entwicklung/CI (ADR-0029)
+node_modules/
+frontend/tests/test-results/
+frontend/tests/playwright-report/

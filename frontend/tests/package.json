@@ -1,0 +1,17 @@
+{
+  "name": "stoerungsinfo-frontend-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Nur Entwicklung/CI: Verhaltenstests fuer frontend/public im echten Browser. Nichts hiervon gelangt in ein Image.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "install-browser": "playwright install --with-deps --only-shell chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

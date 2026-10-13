@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Versand — Störungsinfo-Portal</title>
-  <link rel="stylesheet" href="/assets/app.css?v=4">
+  <link rel="stylesheet" href="/assets/app.css?v=5">
 </head>
 <body>
   <header class="topbar">
@@ -104,6 +104,12 @@ placeholder="Sehr geehrte Damen und Herren,&#10;&#10;aktuell kommt es zu Einschr
 
     <section class="history">
       <div class="card">
+        <p id="history-notice" class="history-notice" hidden>
+          Der letzte Versand blieb ohne Bestätigung — unklar, ob er angelegt wurde. Solange
+          dieser Hinweis steht, ist es gefahrlos, die Meldung unverändert erneut zu senden: Sie
+          geht nicht doppelt raus (eine geänderte gilt als neue Meldung). Diese Liste zeigt den
+          Stand und aktualisiert sich vorerst von selbst.
+        </p>
         <table aria-label="Versandhistorie">
           <thead>
             <tr>
@@ -123,7 +129,11 @@ placeholder="Sehr geehrte Damen und Herren,&#10;&#10;aktuell kommt es zu Einschr
     </section>
   </main>
 
-  <script src="/app.js?v=4"></script>
-  <script src="/versand.js"></script>
+  <footer class="footer-links">
+    <a href="/datenschutz.html">Datenschutzhinweis</a>
+  </footer>
+
+  <script src="/app.js?v=5"></script>
+  <script src="/versand.js?v=5"></script>
 </body>
 </html>

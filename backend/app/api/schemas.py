@@ -1,7 +1,8 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from app.mail.render import TITLE_MAX_LENGTH
 
@@ -26,20 +27,39 @@ class RecipientCountOut(BaseModel):
     count: int
 
 
+# Zeichen, die einen Betreff ungültig machen: C0-Steuerzeichen, DEL und die
+# Unicode-Zeilentrenner (NEL, LS, PS). EmailMessage prüft per str.splitlines(), das
+# auch an den letzten dreien trennt.
+_BETREFF_VERBOTEN = frozenset(map(chr, range(0x20))) | {"\x7f", "\x85", "\u2028", "\u2029"}
+
+
+def _einzeilig(value: str | None) -> str | None:
+    """Titel UND Verteilername landen im Betreff, und ein Zeilenumbruch dort lässt
+    EmailMessage beim Bauen JEDER einzelnen Mail scheitern. Der Versand liefe für jeden
+    Empfänger in einen permanenten Fehler — bemerkt erst im Worker, also nachdem der
+    Auftrag angelegt ist. Hier ist die Stelle, an der man es dem Verfasser noch sagen kann.
+    """
+    if value is not None and not _BETREFF_VERBOTEN.isdisjoint(value):
+        raise ValueError("darf keine Zeilenumbrüche oder Steuerzeichen enthalten")
+    return value
+
+
+Einzeilig = AfterValidator(_einzeilig)
+
+
 class DispatchDraft(BaseModel):
     topic_id: str
     severity: SeverityLiteral
-    # Keine Steuerzeichen im Titel: Er landet im Betreff, und ein Zeilenumbruch dort
-    # laesst EmailMessage beim Bauen JEDER einzelnen Mail scheitern. Der Versand liefe
-    # fuer jeden Empfaenger in einen permanenten Fehler — bemerkt erst im Worker, also
-    # nachdem der Auftrag angelegt ist. Hier ist die Stelle, an der man es dem
-    # Verfasser noch sagen kann.
-    title: str = Field(
-        min_length=1,
-        max_length=TITLE_MAX_LENGTH,
-        pattern=r"^[^\r\n\t\x00-\x1f]+$",
-    )
+    title: Annotated[str, Einzeilig] = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
     body: str = Field(min_length=1, max_length=100_000)
+
+
+class DispatchCreate(DispatchDraft):
+    """„Versand anlegen“: der Entwurf plus ein optionaler Schlüssel, an dem die API eine
+    Wiederholung desselben Aufrufs erkennt (ADR-0031). Die Vorschau kennt ihn nicht."""
+
+    # Vom Client je Meldung zufällig erzeugt; steht in keiner Antwort.
+    idempotency_key: UUID | None = None
 
 
 class PreviewOut(BaseModel):
@@ -74,8 +94,7 @@ class AdminUserOut(BaseModel):
     id: int
     email: str
     is_active: bool
-    # Im Portal vergebenes Adminrecht (ADR-0022). Sagt NICHT, ob die Person zusätzlich
-    # über eine IdP-Rolle Admin ist — das erfährt der Server erst bei deren Anmeldung.
+    # Im Portal vergebenes Adminrecht — die einzige Quelle dafür (ADR-0022)
     is_admin: bool
     subscribed_topic_ids: list[str]
 
@@ -110,7 +129,7 @@ class TopicCreate(BaseModel):
     # Der Slug ist Primärschlüssel und steht in URLs; Fremdschlüssel zeigen darauf,
     # weshalb er nachträglich nicht mehr änderbar ist (ADR-0024).
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,63}$")
-    name: str = Field(min_length=2, max_length=120)
+    name: Annotated[str, Einzeilig] = Field(min_length=2, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
     is_mandatory: bool = False
 
@@ -120,7 +139,7 @@ class TopicPatch(BaseModel):
     (`model_dump(exclude_unset=True)`), damit ein Teil-Update nichts leert.
     Der Slug fehlt bewusst: er ist Primärschlüssel mit Referenzen."""
 
-    name: str | None = Field(default=None, min_length=2, max_length=120)
+    name: Annotated[str | None, Einzeilig] = Field(default=None, min_length=2, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
     is_mandatory: bool | None = None
     is_active: bool | None = None

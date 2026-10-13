@@ -8,7 +8,7 @@ der Konzern-Relay Modern Auth/OAuth2, ist das Nacharbeit (offene Frage B2).
 import contextlib
 import logging
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, formatdate
 
 import aiosmtplib
 
@@ -26,6 +26,9 @@ class Mailer:
         message["From"] = formataddr((self._s.mail_from_name, self._s.mail_from))
         message["To"] = to
         message["Subject"] = subject  # Nicht-ASCII wird RFC-2047-konform encodiert
+        # Pflicht-Header nach RFC 5322 — weder EmailMessage noch aiosmtplib setzen ihn,
+        # und nicht jeder Relay trägt ihn nach.
+        message["Date"] = formatdate(localtime=True)
         message.set_content(text)
         message.add_alternative(html, subtype="html")
         return message

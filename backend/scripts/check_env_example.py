@@ -5,6 +5,7 @@ Bewusst aus dem Settings-Objekt generiert — kein zweiter Doku-Ort, kein Parser
 """
 
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -15,11 +16,10 @@ from app.core.config import Settings  # noqa: E402
 def main() -> int:
     env_example = pathlib.Path(__file__).resolve().parents[2] / ".env.example"
     text = env_example.read_text(encoding="utf-8")
-    missing = [
-        name.upper()
-        for name in Settings.model_fields
-        if f"{name.upper()}=" not in text and f"#{name.upper()}=" not in text
-    ]
+    # Als eigene Zeile (aktiv oder auskommentiert) — ein Teilstring genügte nicht:
+    # DATABASE_URL= steckt auch in TEST_DATABASE_URL=, und Fließtext zählt nicht.
+    documented = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", text, re.MULTILINE))
+    missing = [name.upper() for name in Settings.model_fields if name.upper() not in documented]
     if missing:
         print("FEHLER: Diese Settings-Felder fehlen in .env.example:")
         for name in missing:
